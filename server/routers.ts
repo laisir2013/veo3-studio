@@ -1605,14 +1605,30 @@ async function processLongVideoTask(taskId: string): Promise<void> {
       const videoSegmentCount = Math.round(totalSegments * (videoPercent / 100));
       const imageSegmentCount = totalSegments - videoSegmentCount;
       
-      console.log(`[LongVideo ${taskId}] 媒體分配: 視頻 ${videoPercent}% (${videoSegmentCount}片段), 圖片 ${imagePercent}% (${imageSegmentCount}片段)`);
+      // 計算交替間隔：每隔幾個片段插入一個圖片
+      // 例如: 50% 視頻 50% 圖片 = 每 2 個片段中 1 個是圖片 (交替出現)
+      const videoRatio = videoPercent / 100;
+      
+      // 生成交替序列：根據比例決定每個片段是視頻還是圖片
+      const getMediaTypeForSegment = (segmentId: number): boolean => {
+        if (videoPercent >= 100) return true; // 100% 視頻
+        if (videoPercent <= 0) return false; // 0% 視頻 (全圖片)
+        
+        // 交替分配算法：使用比例計算每個位置應該是視頻還是圖片
+        // 例如 50% 視頻: 片段 1(視頻), 2(圖片), 3(視頻), 4(圖片)...
+        // 例如 70% 視頻: 片段 1(視頻), 2(視頻), 3(圖片), 4(視頻), 5(視頻), 6(圖片)...
+        const expectedVideoCount = Math.round(segmentId * videoRatio);
+        const previousExpectedVideoCount = Math.round((segmentId - 1) * videoRatio);
+        return expectedVideoCount > previousExpectedVideoCount;
+      };
+      
+      console.log(`[LongVideo ${taskId}] 媒體分配: 視頻 ${videoPercent}% (${videoSegmentCount}片段), 圖片 ${imagePercent}% (${imageSegmentCount}片段) - 交替模式`);
       
       // 處理批次中的每個片段
       for (const segment of batch.segments) {
         try {
-          // 根據片段索引決定是生成視頻還是圖片
-          // 前 N 個片段生成視頻，其餘生成圖片
-          const isVideoSegment = segment.id <= videoSegmentCount;
+          // 根據交替算法決定是生成視頻還是圖片
+          const isVideoSegment = getMediaTypeForSegment(segment.id);
           const mediaType = isVideoSegment ? '視頻' : '圖片';
           
           console.log(`[LongVideo ${taskId}] 生成片段 ${segment.id}/${task.totalSegments} (類型: ${mediaType})`);
