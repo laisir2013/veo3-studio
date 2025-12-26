@@ -1,0 +1,1 @@
+ALTER TABLE `video_tasks` ADD `storyMode` enum('character','scene') DEFAULT 'character' NOT NULL;

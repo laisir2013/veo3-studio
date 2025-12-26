@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1766377188043,
+      "tag": "0000_smiling_moondragon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1766377741857,
+      "tag": "0001_wooden_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1766385275813,
+      "tag": "0002_happy_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1766389114270,
+      "tag": "0003_happy_old_lace",
+      "breakpoints": true
+    }
+  ]
+}
