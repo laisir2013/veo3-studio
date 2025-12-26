@@ -1427,22 +1427,10 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           videoUrl: undefined,
                           audioUrl: undefined,
                           imageUrl: undefined,
-                        };
-                      });
-                    })()}
-                    onUpdateSegment={(segmentId, data) => {
-                      setLongVideoStatus(prev => {
-                        if (!prev || !prev.segments) return prev;
-                        return {
-                          ...prev,
-                          segments: prev.segments.map(segment =>
-                            segment.id === segmentId ? { ...segment, ...data } : segment
-                          ),
-                        };
-                      });
-                    }}
-                    maxHeight="none"
-                  />length: calculateSegments(selectedDuration) }).map((_, index) => {
+                        }));
+                      }
+                      // 如果沒有任務數據，使用預設的片段列表
+                      return Array.from({ length: calculateSegments(selectedDuration) }).map((_, index) => {
                         const batchIndex = Math.floor(index / BATCH_SIZE);
                         const startTime = index * 8;
                         const endTime = startTime + 8;
