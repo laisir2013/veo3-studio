@@ -115,6 +115,18 @@ export interface LongVideoTask {
   imageModel: string; // 圖片生成模型
   bgmType?: string; // 背景音樂類型
   subtitleStyle?: string; // 字幕樣式
+  // 媒體設定
+  videoPercent: number; // 視頻比例
+  imagePercent: number; // 圖片比例
+  imageDuration: string; // 圖片顯示時長
+  // 字幕設定
+  subtitleEnabled: boolean; // 是否啟用字幕
+  subtitleMode: "auto" | "manual" | "none"; // 字幕模式
+  subtitleFont: string; // 字幕字體
+  subtitleFontSize: string; // 字幕大小
+  subtitleFontColor: string; // 字幕顏色
+  subtitleBoxStyle: string; // 字幕框樣式
+  subtitlePosition: string; // 字幕位置
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
@@ -158,6 +170,18 @@ export function createLongVideoTask(
     imageModel?: string; // 圖片生成模型
     bgmType?: string; // 背景音樂類型
     subtitleStyle?: string; // 字幕樣式
+    // 媒體設定
+    videoPercent?: number; // 視頻比例
+    imagePercent?: number; // 圖片比例
+    imageDuration?: string; // 圖片顯示時長
+    // 字幕設定
+    subtitleEnabled?: boolean; // 是否啟用字幕
+    subtitleMode?: "auto" | "manual" | "none"; // 字幕模式
+    subtitleFont?: string; // 字幕字體
+    subtitleFontSize?: string; // 字幕大小
+    subtitleFontColor?: string; // 字幕顏色
+    subtitleBoxStyle?: string; // 字幕框樣式
+    subtitlePosition?: string; // 字幕位置
   } = {}
 ): LongVideoTask {
   const taskId = `long_video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -213,6 +237,18 @@ export function createLongVideoTask(
     imageModel: options.imageModel || "midjourney-v6", // 默認使用 midjourney-v6
     bgmType: options.bgmType || "none", // 默認無背景音樂
     subtitleStyle: options.subtitleStyle || "none", // 默認無字幕
+    // 媒體設定
+    videoPercent: options.videoPercent ?? 100,
+    imagePercent: options.imagePercent ?? 0,
+    imageDuration: options.imageDuration || "3s",
+    // 字幕設定
+    subtitleEnabled: options.subtitleEnabled ?? true,
+    subtitleMode: options.subtitleMode || "auto",
+    subtitleFont: options.subtitleFont || "noto-sans-tc",
+    subtitleFontSize: options.subtitleFontSize || "medium",
+    subtitleFontColor: options.subtitleFontColor || "white",
+    subtitleBoxStyle: options.subtitleBoxStyle || "shadow",
+    subtitlePosition: options.subtitlePosition || "bottom-center",
     createdAt: new Date(),
     updatedAt: new Date(),
   };

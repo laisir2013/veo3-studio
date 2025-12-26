@@ -172,6 +172,9 @@ export default function Home() {
   const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null);
   const [selectedBgm, setSelectedBgm] = useState<string>("none");
   const [selectedSubtitle, setSelectedSubtitle] = useState<string>("none");
+  
+  // 媒體設定狀態（圖片/視頻比例、字幕等）
+  const [mediaSettings, setMediaSettings] = useState<MediaSettingsState | null>(null);
 
   // 語言狀態
   const [selectedLanguage, setSelectedLanguage] = useState<Language>("cantonese");
@@ -612,8 +615,20 @@ Scene description: Summarize the content, leave a lasting impression, and encour
         storyMode: selectedStoryMode,
         // 傳遞模型配置
         videoModel: customVideoModel || speedPreset.video,
-        imageModel: "midjourney-v6",
+        imageModel: mediaSettings?.imageModel || "midjourney-v6",
         llmModel: "gpt-4o-mini",
+        // 傳遞媒體設定
+        videoPercent: mediaSettings?.videoPercent ?? 100,
+        imagePercent: mediaSettings?.imagePercent ?? 0,
+        imageDuration: mediaSettings?.imageDuration || "3s",
+        // 傳遞字幕設定
+        subtitleEnabled: mediaSettings?.subtitleEnabled ?? true,
+        subtitleMode: mediaSettings?.subtitleMode || "auto",
+        subtitleFont: mediaSettings?.subtitleFont || "noto-sans-tc",
+        subtitleFontSize: mediaSettings?.subtitleFontSize || "medium",
+        subtitleFontColor: mediaSettings?.subtitleFontColor || "white",
+        subtitleBoxStyle: mediaSettings?.subtitleBoxStyle || "shadow",
+        subtitlePosition: mediaSettings?.subtitlePosition || "bottom-center",
       });
     } else {
       // 短視頻使用原有的生成模式
@@ -963,7 +978,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
             <MediaSettings
               onSettingsChange={(settings) => {
                 console.log('媒體設定更新:', settings);
-                // TODO: 儲存設定到狀態
+                setMediaSettings(settings);
               }}
             />
 

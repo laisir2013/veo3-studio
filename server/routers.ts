@@ -488,6 +488,18 @@ export const appRouter = router({
         imageModel: z.string().default("midjourney-v6"), // 圖片生成模型
         bgmType: z.string().default("none"), // 背景音樂類型
         subtitleStyle: z.string().default("none"), // 字幕樣式
+        // 媒體設定
+        videoPercent: z.number().default(100), // 視頻比例
+        imagePercent: z.number().default(0), // 圖片比例
+        imageDuration: z.string().default("3s"), // 圖片顯示時長
+        // 字幕設定
+        subtitleEnabled: z.boolean().default(true), // 是否啟用字幕
+        subtitleMode: z.enum(["auto", "manual", "none"]).default("auto"), // 字幕模式
+        subtitleFont: z.string().default("noto-sans-tc"), // 字幕字體
+        subtitleFontSize: z.string().default("medium"), // 字幕大小
+        subtitleFontColor: z.string().default("white"), // 字幕顏色
+        subtitleBoxStyle: z.string().default("shadow"), // 字幕框樣式
+        subtitlePosition: z.string().default("bottom-center"), // 字幕位置
       }))
       .mutation(async ({ ctx, input }) => {
         // 未登入時使用默認用戶 ID 0
@@ -508,6 +520,18 @@ export const appRouter = router({
             imageModel: input.imageModel,
             bgmType: input.bgmType,
             subtitleStyle: input.subtitleStyle,
+            // 媒體設定
+            videoPercent: input.videoPercent,
+            imagePercent: input.imagePercent,
+            imageDuration: input.imageDuration,
+            // 字幕設定
+            subtitleEnabled: input.subtitleEnabled,
+            subtitleMode: input.subtitleMode,
+            subtitleFont: input.subtitleFont,
+            subtitleFontSize: input.subtitleFontSize,
+            subtitleFontColor: input.subtitleFontColor,
+            subtitleBoxStyle: input.subtitleBoxStyle,
+            subtitlePosition: input.subtitlePosition,
           }
         );
 
