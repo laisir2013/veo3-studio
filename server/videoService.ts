@@ -6,7 +6,7 @@ import { LLM_FALLBACK_CONFIG, VIDEO_FALLBACK_CHAIN } from "./videoConfig";
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 帶重試的 API 調用 (增強版)
-async function fetchWithRetry(
+export async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retryConfig = RETRY_CONFIG
