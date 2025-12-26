@@ -501,14 +501,27 @@ Scene description: Summarize the content, leave a lasting impression, and encour
       localStorage.removeItem('longVideoTaskId');
       localStorage.removeItem('isLongVideoMode');
       
+      // 使用 Service Worker 發送通知（兼容移動端）
       if ("Notification" in window && Notification.permission === "granted") {
         const isCompleted = longVideoStatus.status === "completed";
-        new Notification(isCompleted ? "🎉 長視頻生成完成！" : "❌ 長視頻生成失敗", {
-          body: isCompleted 
-            ? `您的 ${longVideoStatus.totalDurationMinutes} 分鐘視頻已經準備好了` 
-            : longVideoStatus.error || "生成過程中出現錯誤",
-          icon: "/favicon.ico",
-        });
+        const notificationTitle = isCompleted ? "🎉 長視頻生成完成！" : "❌ 長視頻生成失敗";
+        const notificationBody = isCompleted 
+          ? `您的 ${longVideoStatus.totalDurationMinutes} 分鐘視頻已經準備好了` 
+          : longVideoStatus.error || "生成過程中出現錯誤";
+        
+        // 優先使用 Service Worker 發送通知
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification(notificationTitle, {
+              body: notificationBody,
+              icon: "/icons/icon-192x192.png",
+              badge: "/icons/icon-72x72.png",
+            });
+          }).catch(() => {
+            // Service Worker 失敗時使用 toast 通知
+            console.log('[Notification] Service Worker notification failed, using toast instead');
+          });
+        }
       }
       
       if (longVideoStatus.status === "completed") {
@@ -532,16 +545,28 @@ Scene description: Summarize the content, leave a lasting impression, and encour
     if (taskStatus?.status === "completed" || taskStatus?.status === "failed") {
       refetchHistory();
       
-      // 發送瀏覽器通知
+      // 使用 Service Worker 發送瀏覽器通知（兼容移動端）
       if ("Notification" in window && Notification.permission === "granted") {
         const isCompleted = taskStatus.status === "completed";
-        new Notification(isCompleted ? "🎉 視頻生成完成！" : "❌ 視頻生成失敗", {
-          body: isCompleted 
-            ? "您的視頻已經準備好了，點擊查看" 
-            : taskStatus.errorMessage || "生成過程中出現錯誤",
-          icon: "/favicon.ico",
-          tag: `video-task-${activeTaskId}`,
-        });
+        const notificationTitle = isCompleted ? "🎉 視頻生成完成！" : "❌ 視頻生成失敗";
+        const notificationBody = isCompleted 
+          ? "您的視頻已經準備好了，點擊查看" 
+          : taskStatus.errorMessage || "生成過程中出現錯誤";
+        
+        // 優先使用 Service Worker 發送通知
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification(notificationTitle, {
+              body: notificationBody,
+              icon: "/icons/icon-192x192.png",
+              badge: "/icons/icon-72x72.png",
+              tag: `video-task-${activeTaskId}`,
+            });
+          }).catch(() => {
+            // Service Worker 失敗時使用 toast 通知
+            console.log('[Notification] Service Worker notification failed, using toast instead');
+          });
+        }
       }
       
       // 顯示 toast 通知

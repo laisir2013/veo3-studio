@@ -1,6 +1,6 @@
 // PO Studio Service Worker
 // 版本號 - 每次更新時修改此值
-const SW_VERSION = '2.0.0';
+const SW_VERSION = '2.0.1';
 const CACHE_NAME = `po-studio-v${SW_VERSION}`;
 const STATIC_CACHE = `po-studio-static-v${SW_VERSION}`;
 const DYNAMIC_CACHE = `po-studio-dynamic-v${SW_VERSION}`;
