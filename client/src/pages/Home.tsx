@@ -46,6 +46,7 @@ import { SeoPanel, type SeoResult } from "@/components/SeoPanel";
 import { SceneManager, type Scene } from "@/components/SceneManager";
 import { MediaSettings, type MediaSettingsState } from "@/components/MediaSettings";
 import { VoiceCloneCard } from "@/components/VoiceCloneCard";
+import { NarrationScriptEditor } from "@/components/NarrationScriptEditor";
 import { toast } from "sonner";
 
 // 速度模式預設配置
@@ -1555,6 +1556,39 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* 旁白腳本編輯器 - 在生成前顯示 */}
+                  {taskStatus.scenes && taskStatus.scenes.length > 0 && taskStatus.status === "pending" && (
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-muted-foreground">旁白腳本編輯</div>
+                      {taskStatus.scenes.map((scene: any, index: number) => (
+                        scene.narrationSegments && scene.narrationSegments.length > 0 && (
+                          <NarrationScriptEditor
+                            key={index}
+                            sceneId={index + 1}
+                            taskId={longVideoTaskId || ""}
+                            story={story}
+                            sceneDescription={scene.description}
+                            narrationSegments={scene.narrationSegments}
+                            llmModel={MODE_PRESETS[selectedSpeedMode].llm}
+                            language={selectedLanguage === "clone" ? "cantonese" : selectedLanguage}
+                            onNarrationUpdate={(segments) => {
+                              if (taskStatus.scenes) {
+                                taskStatus.scenes[index].narrationSegments = segments;
+                              }
+                              toast.success(`場景 ${index + 1} 的旁白已更新`);
+                            }}
+                            onRegenerateNarration={(segments) => {
+                              if (taskStatus.scenes) {
+                                taskStatus.scenes[index].narrationSegments = segments;
+                              }
+                              toast.success(`場景 ${index + 1} 的旁白已重新生成`);
+                            }}
+                          />
+                        )
+                      ))}
                     </div>
                   )}
 
