@@ -1598,10 +1598,24 @@ async function processLongVideoTask(taskId: string): Promise<void> {
       const apiKey = getBatchApiKey(batch);
       console.log(`[LongVideo ${taskId}] 批次 ${batch.index + 1} 使用 API Key: ${apiKey.substring(0, 10)}...`);
 
+      // 計算視頻和圖片的片段分配
+      const videoPercent = task.videoPercent ?? 100;
+      const imagePercent = task.imagePercent ?? 0;
+      const totalSegments = task.totalSegments;
+      const videoSegmentCount = Math.round(totalSegments * (videoPercent / 100));
+      const imageSegmentCount = totalSegments - videoSegmentCount;
+      
+      console.log(`[LongVideo ${taskId}] 媒體分配: 視頻 ${videoPercent}% (${videoSegmentCount}片段), 圖片 ${imagePercent}% (${imageSegmentCount}片段)`);
+      
       // 處理批次中的每個片段
       for (const segment of batch.segments) {
         try {
-          console.log(`[LongVideo ${taskId}] 生成片段 ${segment.id}/${task.totalSegments}`);
+          // 根據片段索引決定是生成視頻還是圖片
+          // 前 N 個片段生成視頻，其餘生成圖片
+          const isVideoSegment = segment.id <= videoSegmentCount;
+          const mediaType = isVideoSegment ? '視頻' : '圖片';
+          
+          console.log(`[LongVideo ${taskId}] 生成片段 ${segment.id}/${task.totalSegments} (類型: ${mediaType})`);
           
           // 實際生成視頻片段
           const sceneData = analysisResult.scenes[Math.min(segment.id - 1, analysisResult.scenes.length - 1)];
@@ -1615,12 +1629,20 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               task.storyMode || 'scene'
             );
             
-            // 2. 生成視頻 (參數順序: imageUrl, prompt, videoModel)
-            const videoUrl = await generateVideo(
-              imageUrl,
-              sceneData?.description || `Video scene ${segment.id}`,
-              task.videoModel as any
-            );
+            let videoUrl: string;
+            
+            if (isVideoSegment) {
+              // 2a. 生成視頻 (參數順序: imageUrl, prompt, videoModel)
+              videoUrl = await generateVideo(
+                imageUrl,
+                sceneData?.description || `Video scene ${segment.id}`,
+                task.videoModel as any
+              );
+            } else {
+              // 2b. 使用圖片作為視頻（後續合併時會處理圖片時長）
+              videoUrl = imageUrl;
+              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，時長: ${task.imageDuration || '3s'}`);
+            }
             
             // 3. 生成語音旁白
             const voiceActorId = task.voiceActorId || 'default';
@@ -1630,15 +1652,15 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               (task.language || 'cantonese') as any
             );
             
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 生成完成`);
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 視頻: ${videoUrl}`);
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 生成完成 (類型: ${mediaType})`);
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 視頻/圖片: ${videoUrl}`);
             console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻: ${audioUrl}`);
             
             // 更新片段狀態（使用實際生成的 URL）
             updateSegment(taskId, segment.id, {
               status: "completed",
               progress: 100,
-              videoUrl: videoUrl, // 使用實際生成的視頻 URL
+              videoUrl: videoUrl, // 使用實際生成的視頻/圖片 URL
               audioUrl: audioUrl, // 使用實際生成的音頻 URL
               narration: sceneData?.narration,
               prompt: sceneData?.description,
