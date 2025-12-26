@@ -33,7 +33,7 @@ const LANGUAGE_CONFIG: Record<VoiceLanguage, { languageId: string; voiceSource: 
 
 // KreadoAI 配音員映射（將我們的配音員 ID 映射到 KreadoAI voiceId）
 // 完整版本：包含所有可用的配音員
-const VOICE_ACTOR_MAPPING: Record<string, { voiceId: string; voiceSource: number }> = {
+const VOICE_ACTOR_MAPPING: Record<string, { voiceId: string; voiceSource: number; isClone?: boolean }> = {
   // ============================================
   // 粵語配音員 (MiniMax voiceSource: 5)
   // ============================================
@@ -195,11 +195,11 @@ const VOICE_ACTOR_MAPPING: Record<string, { voiceId: string; voiceSource: number
   "english-child-girl": { voiceId: "09AoN6tYyW3VSTQqCo7C", voiceSource: 21 }, // Lily Girl
   
   // ============================================
-  // 克隆聲音 (Clone Voices)
+  // 克隆聲音 (Clone Voices) - 注意：克隆語音需要 voiceClone: 1
   // ============================================
-  "clone-po": { voiceId: "Minimax919724_52965111962639", voiceSource: 5 }, // PO 克隆聲音 - 粵語
-  "cantonese-po-clone": { voiceId: "Minimax919724_52965111962639", voiceSource: 5 }, // PO 克隆語音 - 粵語 (別名)
-  "po-clone": { voiceId: "Minimax919724_52965111962639", voiceSource: 5 }, // PO 克隆語音 (別名)
+  "clone-po": { voiceId: "Minimax919724_52965111962639", voiceSource: 5, isClone: true }, // PO 克隆聲音 - 粵語
+  "cantonese-po-clone": { voiceId: "Minimax919724_52965111962639", voiceSource: 5, isClone: true }, // PO 克隆語音 - 粵語 (別名)
+  "po-clone": { voiceId: "Minimax919724_52965111962639", voiceSource: 5, isClone: true }, // PO 克隆語音 (別名)
   
   // ============================================
   // 向後兼容映射（舊版配音員 ID）
@@ -256,11 +256,15 @@ export async function generateSpeechWithKreado(
   let voiceId: string;
   let voiceSource: number;
   
+  // 判斷是否是克隆語音
+  let isCloneVoice = false;
+  
   if (voiceMapping) {
     // 如果在映射表中找到，使用映射的配置
     voiceId = voiceMapping.voiceId;
     voiceSource = voiceMapping.voiceSource;
-    console.log(`[KreadoAI TTS] 使用映射配音員: ${voiceActorId} -> ${voiceId}`);
+    isCloneVoice = voiceMapping.isClone || false;
+    console.log(`[KreadoAI TTS] 使用映射配音員: ${voiceActorId} -> ${voiceId}, isClone: ${isCloneVoice}`);
   } else {
     // 檢查是否是 KreadoAI 原生 voiceId 格式
     const isMinimaxVoice = voiceActorId && voiceActorId.startsWith('Minimax');
@@ -298,8 +302,10 @@ export async function generateSpeechWithKreado(
     content: content,
     voiceId: voiceId,
     voiceSource: voiceSource,
-    voiceClone: 0,
+    voiceClone: isCloneVoice ? 1 : 0,  // 克隆語音需要設置為 1
   };
+  
+  console.log(`[KreadoAI TTS] 請求參數: voiceClone=${requestBody.voiceClone}`);
   
   try {
     const response = await fetch(KREADO_TTS_URL, {
