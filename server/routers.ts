@@ -135,6 +135,45 @@ export const appRouter = router({
         return { taskId, message: "任務已創建，正在生成中..." };
       }),
 
+    // 重新生成旁白腳本
+    regenerateNarration: publicProcedure
+      .input(z.object({
+        taskId: z.string(),
+        sceneId: z.number(),
+        story: z.string(),
+        sceneDescription: z.string(),
+        existingNarration: z.string(),
+        llmModel: z.string(),
+        language: z.enum(["cantonese", "mandarin", "english"]).default("cantonese"),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const { regenerateNarrationSegments } = await import("./videoService");
+          const newSegments = await regenerateNarrationSegments(
+            input.story,
+            input.sceneDescription,
+            input.existingNarration,
+            input.llmModel,
+            input.language
+          );
+
+          // 更新長視頻任務中的場景數據
+          const task = getLongVideoTask(input.taskId);
+          if (task) {
+            const scene = task.scenes?.find(s => s.id === input.sceneId);
+            if (scene) {
+              scene.narrationSegments = newSegments;
+              updateLongVideoTask(input.taskId, { scenes: task.scenes });
+            }
+          }
+
+          return { success: true, narrationSegments: newSegments };
+        } catch (error) {
+          console.error("重新生成旁白失敗:", error);
+          return { success: false, error: error instanceof Error ? error.message : "未知錯誤" };
+        }
+      }),
+
     // 獲取任務狀態（使用內存存儲）
     getStatus: publicProcedure
       .input(z.object({ taskId: z.number() }))

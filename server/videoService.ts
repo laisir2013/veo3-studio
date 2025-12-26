@@ -286,6 +286,186 @@ ${visualStyle ? `視覺風格：${visualStyle}` : ""}
   };
 }
 
+// 調用 LLM 重新生成旁白片段
+export async function regenerateNarrationSegments(
+  story: string,
+  sceneDescription: string,
+  existingNarration: string, // 可以是舊的旁白，或者是一個提示
+  llmModel: string,
+  language: Language = "cantonese"
+): Promise<{ segmentId: number; text: string }[]> {
+  const apiKey = getNextApiKey();
+  const langConfig = LANGUAGE_PROMPTS[language];
+
+  const systemPrompt = `你是一個專業的視頻腳本作家。你的任務是根據提供的故事背景和場景描述，生成一段連貫的旁白腳本，並將其精確地分割成多個片段。
+
+重要規則：
+1. 旁白必須使用${langConfig.outputLanguage}。
+2. 每個旁白片段的長度必須控制在約 8 秒語音內（大約 30-50 個中文字）。
+3. 旁白內容必須與場景描述的畫面內容高度匹配。
+4. 請以 JSON 格式返回，格式如下：
+{
+  "narrationSegments": [
+    { "segmentId": 1, "text": "旁白片段一（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" },
+    { "segmentId": 2, "text": "旁白片段二（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" }
+  ]
+}
+`;
+
+  const userPrompt = `
+故事背景：${story}
+場景描述（畫面提示詞）：${sceneDescription}
+現有旁白（供參考或修改）：${existingNarration}
+
+請根據上述信息，生成新的旁白片段。
+`;
+
+  const modelsToTry = [llmModel];
+  const fallbackModels = LLM_FALLBACK_CONFIG[llmModel as keyof typeof LLM_FALLBACK_CONFIG];
+  if (fallbackModels && Array.isArray(fallbackModels)) {
+    modelsToTry.push(...fallbackModels);
+  } else if (fallbackModels) {
+    modelsToTry.push(fallbackModels as unknown as string);
+  }
+
+  let lastError: Error | null = null;
+  let result: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      console.log(\`[LLM] 嘗試使用模型: \${model}\`);
+      
+      const currentApiKey = getNextApiKey();
+      
+      const response = await fetchWithRetry(\`\${API_ENDPOINTS.vectorEngine}/v1/chat/completions\`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": \`Bearer \${currentApiKey}\`,
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(\`LLM API 調用失敗: \${response.status} - \${errorText}\`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+      
+      if (!content) {
+        throw new Error("LLM 返回內容為空");
+      }
+
+      let jsonContent = content.trim();
+      if (jsonContent.startsWith('```json')) {
+        jsonContent = jsonContent.slice(7);
+      } else if (jsonContent.startsWith('```')) {
+        jsonContent = jsonContent.slice(3);
+      }
+      if (jsonContent.endsWith('```')) {
+        jsonContent = jsonContent.slice(0, -3);
+      }
+      jsonContent = jsonContent.trim();
+      
+      result = JSON.parse(jsonContent);
+      console.log(\`[LLM] 模型 \${model} 成功\`);
+      break;
+    } catch (error) {
+      lastError = error as Error;
+      console.warn(\`[LLM] 模型 \${model} 失敗:\`, error);
+      if (model !== modelsToTry[modelsToTry.length - 1]) {
+        console.log(\`[LLM] 切換到備用模型...\`);
+      }
+    }
+  }
+
+  // 如果所有 VectorEngine 模型都失敗，嘗試備用 API
+  if (!result) {
+    console.log(\`[LLM] VectorEngine 所有模型都失敗，嘗試備用 API...\`);
+    
+    for (const backup of BACKUP_LLM_CONFIG.backupModels) {
+      try {
+        const backupApiKey = backup.provider === 'openrouter' 
+          ? BACKUP_LLM_CONFIG.openrouterApiKey 
+          : BACKUP_LLM_CONFIG.openaiApiKey;
+        
+        if (!backupApiKey) {
+          console.log(\`[LLM] 備用 \${backup.provider} API Key 未配置，跳過\`);
+          continue;
+        }
+        
+        console.log(\`[LLM] 嘗試備用 API: \${backup.provider}/\${backup.model}\`);
+        
+        const response = await fetchWithRetry(backup.endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": \`Bearer \${backupApiKey}\`,
+            ...(backup.provider === 'openrouter' ? { "HTTP-Referer": "https://veo3-studio.onrender.com" } : {}),
+          },
+          body: JSON.stringify({
+            model: backup.model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            response_format: { type: "json_object" },
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(\`備用 LLM API 調用失敗: \${response.status} - \${errorText}\`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content;
+        
+        if (!content) {
+          throw new Error("備用 LLM 返回內容為空");
+        }
+        
+        let jsonContent = content.trim();
+        if (jsonContent.startsWith('```json')) {
+          jsonContent = jsonContent.slice(7);
+        } else if (jsonContent.startsWith('```')) {
+          jsonContent = jsonContent.slice(3);
+        }
+        if (jsonContent.endsWith('```')) {
+          jsonContent = jsonContent.slice(0, -3);
+        }
+        jsonContent = jsonContent.trim();
+        
+        result = JSON.parse(jsonContent);
+        console.log(\`[LLM] 備用 API \${backup.provider}/\${backup.model} 成功\`);
+        break;
+      } catch (backupError) {
+        console.warn(\`[LLM] 備用 API \${backup.provider}/\${backup.model} 失敗:\`, backupError);
+      }
+    }
+  }
+
+  if (!result) {
+    throw lastError || new Error("所有 LLM 模型和備用 API 都失敗");
+  }
+
+  // 確保返回的是一個陣列
+  if (!Array.isArray(result.narrationSegments)) {
+    throw new Error("LLM 返回的 narrationSegments 格式不正確");
+  }
+  
+  return result.narrationSegments;
+}
+
 // 生成角色基礎圖片（使用 VectorEngine Midjourney API）
 export async function generateCharacterImage(prompt: string, mode: string): Promise<string> {
   const apiKey = getNextApiKey();
