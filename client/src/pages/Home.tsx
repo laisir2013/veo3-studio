@@ -1377,14 +1377,26 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           startTime: index * 8,
                           endTime: (index + 1) * 8,
                           description: scene.prompt || scene.description,
-                          narration: scene.narrationSegments?.[0]?.text,
-                          videoUrl: scene.videoUrl,
-                          audioUrl: scene.audioUrl,
-                          imageUrl: scene.imageUrl,
-                        }));
-                      }
-                      // 否則根據用戶選擇的時長生成預覽
-                      return Array.from({ length: calculateSegments(selectedDuration) }).map((_, index) => {
+                          narration: customScenes[index]?.narrationSegments?.[0]?.text,
+                          videoUrl: undefined,
+                          audioUrl: undefined,
+                          imageUrl: undefined,
+                        };
+                      });
+                    })()}
+                    onUpdateSegment={(segmentId, data) => {
+                      setLongVideoStatus(prev => {
+                        if (!prev || !prev.segments) return prev;
+                        return {
+                          ...prev,
+                          segments: prev.segments.map(segment =>
+                            segment.id === segmentId ? { ...segment, ...data } : segment
+                          ),
+                        };
+                      });
+                    }}
+                    maxHeight="none"
+                  />length: calculateSegments(selectedDuration) }).map((_, index) => {
                         const batchIndex = Math.floor(index / BATCH_SIZE);
                         const startTime = index * 8;
                         const endTime = startTime + 8;
@@ -1411,6 +1423,17 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                       description: actor.description,
                       sampleUrl: actor.sampleUrl,
                     }))}
+                    onUpdateSegment={(segmentId, data) => {
+                      setLongVideoStatus(prev => {
+                        if (!prev || !prev.segments) return prev;
+                        return {
+                          ...prev,
+                          segments: prev.segments.map(segment =>
+                            segment.id === segmentId ? { ...segment, ...data } : segment
+                          ),
+                        };
+                      });
+                    }}
                     maxHeight="none"
                   />
                 </div>
@@ -1545,8 +1568,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                                   size="sm"
                                   className="w-full h-7 text-xs gap-1"
                                   onClick={() => {
-                                    toast.info(`正在重新生成場景 ${index + 1}...`);
-                                    // TODO: 實現重新生成邏輯
+                                    toast.info(`請在下方的片段詳情列表中操作重新生成。`);
                                   }}
                                 >
                                   <Video className="w-3 h-3" />
