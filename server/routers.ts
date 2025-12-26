@@ -135,6 +135,80 @@ export const appRouter = router({
         return { taskId, message: "任務已創建，正在生成中..." };
       }),
 
+    // 生成字幕
+    generateSubtitles: publicProcedure
+      .input(z.object({
+        taskId: z.string(),
+        narrationSegments: z.array(z.object({
+          segmentId: z.number(),
+          text: z.string(),
+        })),
+        language: z.enum(["cantonese", "mandarin", "english"]).default("cantonese"),
+        format: z.enum(["srt", "vtt", "json"]).default("srt"),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const { generateSubtitlesFromText, convertToSRT, convertToVTT, convertToJSON } = await import("./subtitleService");
+          const subtitleTrack = await generateSubtitlesFromText(input.narrationSegments, 8);
+
+          // 根據格式轉換字幕
+          let subtitleContent: string;
+          if (input.format === "srt") {
+            subtitleContent = convertToSRT(subtitleTrack);
+          } else if (input.format === "vtt") {
+            subtitleContent = convertToVTT(subtitleTrack);
+          } else {
+            subtitleContent = convertToJSON(subtitleTrack);
+          }
+
+          // 上傳字幕檔案
+          const { uploadSubtitleFile } = await import("./subtitleMergeService");
+          const subtitleUrl = await uploadSubtitleFile(subtitleTrack, input.format);
+
+          // 更新任務中的字幕數據
+          const task = getLongVideoTask(input.taskId);
+          if (task) {
+            updateLongVideoTask(input.taskId, { subtitles: subtitleTrack });
+          }
+
+          return { success: true, subtitleUrl, subtitleTrack };
+        } catch (error) {
+          console.error("生成字幕失敗:", error);
+          return { success: false, error: error instanceof Error ? error.message : "未知錯誤" };
+        }
+      }),
+
+    // 合併字幕到影片
+    mergeSubtitlesToVideo: publicProcedure
+      .input(z.object({
+        taskId: z.string(),
+        videoUrl: z.string(),
+        style: z.enum(["default", "white", "black", "yellow"]).default("default"),
+        fontSize: z.number().default(24),
+        position: z.enum(["bottom", "top"]).default("bottom"),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const task = getLongVideoTask(input.taskId);
+          if (!task || !task.subtitles) {
+            return { success: false, error: "任務中沒有字幕數據" };
+          }
+
+          const { mergeSubtitlesToVideo } = await import("./subtitleMergeService");
+          const mergedVideoUrl = await mergeSubtitlesToVideo(input.videoUrl, task.subtitles, {
+            format: "srt",
+            style: input.style,
+            fontSize: input.fontSize,
+            position: input.position,
+          });
+
+          return { success: true, mergedVideoUrl };
+        } catch (error) {
+          console.error("合併字幕到影片失敗:", error);
+          return { success: false, error: error instanceof Error ? error.message : "未知錯誤" };
+        }
+      }),
+
     // 重新生成片段
     regenerateSegment: publicProcedure
       .input(z.object({
