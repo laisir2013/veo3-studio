@@ -101,13 +101,13 @@ export async function analyzeStory(
   const langConfig = LANGUAGE_PROMPTS[language];
   
   const systemPrompt = `你是一個專業的視頻腳本分析師。請將用戶的故事分解為 3-5 個場景，每個場景包含：
-1. 場景描述（用於生成視頻提示詞，必須用英文）
-2. 旁白文字（用於語音合成）
+1. 場景描述（用於生成視頻提示詞，必須用英文，應是畫面內容的精確描述）
+2. 旁白文字（用於語音合成，應是敘事性、連貫性的故事文本）
 3. 圖片提示詞（用於 Midjourney 生成角色圖片，必須用英文）
 
 重要：
-- 場景描述 (description) 必須使用英文，因為視頻生成 AI 不支援中文
-- 旁白文字 (narration) 必須使用${langConfig.outputLanguage}，${langConfig.narrationStyle}
+- 場景描述 (description) 必須使用英文，應是畫面內容的精確描述
+- 旁白文字 (narration) 必須使用${langConfig.outputLanguage}，應是連貫的敘事文本，與畫面描述有區別
 - 圖片提示詞 (imagePrompt) 必須使用英文
 
 請以 JSON 格式返回，格式如下：
