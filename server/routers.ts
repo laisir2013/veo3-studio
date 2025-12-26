@@ -135,6 +135,33 @@ export const appRouter = router({
         return { taskId, message: "任務已創建，正在生成中..." };
       }),
 
+    // 重新生成片段
+    regenerateSegment: publicProcedure
+      .input(z.object({
+        taskId: z.string(),
+        segmentId: z.number(),
+        regenerateType: z.enum(["all", "video", "audio", "image"]).default("all"),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const { regenerateSegment: regenerateSegmentFn } = await import("./regenerateSegmentService");
+          const result = await regenerateSegmentFn({
+            taskId: input.taskId,
+            segmentId: input.segmentId,
+            regenerateType: input.regenerateType,
+          });
+
+          if (result.success) {
+            return { success: true, ...result };
+          } else {
+            return { success: false, error: result.error };
+          }
+        } catch (error) {
+          console.error("重新生成片段失敗:", error);
+          return { success: false, error: error instanceof Error ? error.message : "未知錯誤" };
+        }
+      }),
+
     // 重新生成旁白腳本
     regenerateNarration: publicProcedure
       .input(z.object({
