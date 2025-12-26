@@ -4,7 +4,7 @@
  */
 
 import { fetchWithRetry } from "./videoService";
-import { API_ENDPOINTS, getNextApiKey } from "./apiConfig";
+import { API_ENDPOINTS, getNextApiKey } from "./videoConfig";
 
 export interface SubtitleSegment {
   id: number;
