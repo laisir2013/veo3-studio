@@ -1586,6 +1586,12 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                               }
                               toast.success(`場景 ${index + 1} 的旁白已重新生成`);
                             }}
+                            onSceneDescriptionUpdate={(description) => {
+                              if (taskStatus.scenes) {
+                                taskStatus.scenes[index].description = description;
+                              }
+                              toast.success(`場景 ${index + 1} 的描述已更新`);
+                            }}
                           />
                         )
                       ))}

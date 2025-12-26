@@ -12,7 +12,8 @@ import {
   Volume2,
   RotateCcw,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  FileText
 } from "lucide-react";
 import {
   Collapsible,
@@ -36,6 +37,7 @@ interface NarrationScriptEditorProps {
   language: "cantonese" | "mandarin" | "english";
   onNarrationUpdate?: (segments: NarrationSegment[]) => void;
   onRegenerateNarration?: (segments: NarrationSegment[]) => void;
+  onSceneDescriptionUpdate?: (description: string) => void;
   isRegenerating?: boolean;
 }
 
@@ -49,6 +51,7 @@ export function NarrationScriptEditor({
   language,
   onNarrationUpdate,
   onRegenerateNarration,
+  onSceneDescriptionUpdate,
   isRegenerating = false,
 }: NarrationScriptEditorProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -56,11 +59,18 @@ export function NarrationScriptEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState<number | null>(null);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [editedDescription, setEditedDescription] = useState(sceneDescription);
 
   // 當 narrationSegments 更新時，同步編輯狀態
   useEffect(() => {
     setEditedSegments(narrationSegments);
   }, [narrationSegments]);
+
+  // 當 sceneDescription 更新時，同步編輯狀態
+  useEffect(() => {
+    setEditedDescription(sceneDescription);
+  }, [sceneDescription]);
 
   // 計算總字數
   const totalCharacters = editedSegments.reduce((sum, seg) => sum + seg.text.length, 0);
@@ -105,6 +115,27 @@ export function NarrationScriptEditor({
   const handleCancel = () => {
     setEditedSegments(narrationSegments);
     setIsEditing(false);
+  };
+
+  // 保存場景描述
+  const handleSaveDescription = async () => {
+    try {
+      if (!editedDescription.trim()) {
+        toast.error("場景描述不能為空");
+        return;
+      }
+      onSceneDescriptionUpdate?.(editedDescription);
+      setIsEditingDescription(false);
+      toast.success("場景描述已保存");
+    } catch (error) {
+      toast.error("保存失敗: " + (error instanceof Error ? error.message : "未知錯誤"));
+    }
+  };
+
+  // 取消編輯描述
+  const handleCancelDescription = () => {
+    setEditedDescription(sceneDescription);
+    setIsEditingDescription(false);
   };
 
   // 重新生成旁白
@@ -179,7 +210,7 @@ export function NarrationScriptEditor({
           <div>
             <CardTitle className="flex items-center gap-2">
               <Volume2 className="w-5 h-5 text-primary" />
-              場景 #{sceneId} - 旁白腳本
+              場景 #{sceneId} - 旁白腳本與描述
             </CardTitle>
             <CardDescription>
               {editedSegments.length} 個片段 · {totalCharacters} 字 · 約 {totalSeconds} 秒
@@ -197,14 +228,63 @@ export function NarrationScriptEditor({
 
       <CollapsibleContent>
         <CardContent className="space-y-4">
-          {/* 場景描述預覽 */}
-          <div className="bg-zinc-900/50 rounded-lg p-3 border border-zinc-800">
-            <div className="text-xs font-medium text-zinc-400 mb-2">場景描述（畫面提示詞）</div>
-            <div className="text-sm text-zinc-300 line-clamp-2">{sceneDescription}</div>
+          {/* 場景描述編輯區 */}
+          <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-900/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-medium">場景描述（影片提示詞）</span>
+              </div>
+              {!isEditingDescription && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setIsEditingDescription(true)}
+                  className="h-6 px-2"
+                >
+                  <Edit3 className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+
+            {isEditingDescription ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={editedDescription}
+                  onChange={(e) => setEditedDescription(e.target.value)}
+                  placeholder="輸入場景描述（用於生成影片）..."
+                  className="min-h-[80px] text-sm"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleSaveDescription}
+                    size="sm"
+                    className="flex-1"
+                  >
+                    <Save className="w-3 h-3 mr-1" />
+                    保存描述
+                  </Button>
+                  <Button
+                    onClick={handleCancelDescription}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    <X className="w-3 h-3 mr-1" />
+                    取消
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-300 leading-relaxed bg-zinc-800/30 p-2 rounded">
+                {editedDescription}
+              </div>
+            )}
           </div>
 
           {/* 旁白片段列表 */}
           <div className="space-y-3">
+            <div className="text-sm font-medium text-zinc-400">旁白片段</div>
             {editedSegments.map((segment) => (
               <div key={segment.segmentId} className="border border-zinc-800 rounded-lg p-3 bg-zinc-900/30">
                 <div className="flex items-start justify-between mb-2">
@@ -333,7 +413,7 @@ export function NarrationScriptEditor({
 
           {/* 提示信息 */}
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-xs text-blue-300">
-            💡 提示：每個旁白片段應為 20-100 字，約 8 秒語音長度。您可以編輯旁白或要求 AI 重新生成。
+            💡 提示：每個旁白片段應為 20-100 字，約 8 秒語音長度。您可以編輯旁白或場景描述，也可以要求 AI 重新生成。
           </div>
         </CardContent>
       </CollapsibleContent>
