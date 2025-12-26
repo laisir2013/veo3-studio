@@ -48,6 +48,7 @@ import { MediaSettings, type MediaSettingsState } from "@/components/MediaSettin
 import { VoiceCloneCard } from "@/components/VoiceCloneCard";
 import { NarrationScriptEditor } from "@/components/NarrationScriptEditor";
 import { SubtitleEditor } from "@/components/SubtitleEditor";
+import { VoiceActorFilterPanel } from "@/components/VoiceActorFilterPanel";
 import { toast } from "sonner";
 
 // 速度模式預設配置
@@ -180,6 +181,7 @@ export default function Home() {
 
   // 語言狀態
   const [selectedLanguage, setSelectedLanguage] = useState<Language>("cantonese");
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false); // 控制語言選擇器顯示
 
   // 配音狀態
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("unified");
@@ -194,6 +196,13 @@ export default function Home() {
     setCharacterVoices([]);
     toast.info(`已切換到${LANGUAGES[language].name}，請重新選擇配音員`);
   };
+
+  // 故事生成後自動顯示語言選擇器
+  useEffect(() => {
+    if (story.trim()) {
+      setShowLanguageSelector(true);
+    }
+  }, [story]);
 
   // 長視頻任務狀態 - 從 localStorage 恢復
   const [longVideoTaskId, setLongVideoTaskId] = useState<string | null>(() => {
@@ -1251,6 +1260,43 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                     </>
                   )}
                 </Button>
+
+                {/* 語言選擇器 - 在故事生成後顯示 */}
+                {showLanguageSelector && story.trim() && (
+                  <div className="border-t border-white/10 pt-4 mb-4">
+                    <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-lg p-4">
+                      <Label className="text-sm font-medium flex items-center gap-2 mb-3">
+                        <Users className="w-4 h-4 text-blue-400" />
+                        第 1 步：選擇旁白語言
+                      </Label>
+                      <p className="text-xs text-zinc-400 mb-3">不同語言會生成不同的口語化旁白，請選擇您想要的語言。</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        {Object.entries(LANGUAGES).map(([key, lang]) => (
+                          <Button
+                            key={key}
+                            variant={selectedLanguage === key ? "default" : "outline"}
+                            className={selectedLanguage === key ? "bg-blue-500 hover:bg-blue-600" : "border-zinc-600 hover:border-blue-500/50"}
+                            onClick={() => handleLanguageChange(key as Language)}
+                          >
+                            <div className="flex flex-col items-center">
+                              <span className="text-sm font-medium">{lang.name}</span>
+                              <span className="text-xs opacity-75">{lang.nativeName}</span>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 配音員篩選面板 */}
+                {showLanguageSelector && story.trim() && (
+                  <VoiceActorFilterPanel
+                    language={selectedLanguage}
+                    selectedVoiceActorId={selectedVoiceActor}
+                    onVoiceActorSelected={setSelectedVoiceActor}
+                  />
+                )}
 
                 {/* SEO 生成區塊 */}
                 <div className="border-t border-white/10 pt-4">

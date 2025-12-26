@@ -839,6 +839,55 @@ export const appRouter = router({
         return getVoiceActorsByStyle(input.style);
       }),
 
+    // 高級篩選配音員（根據語言、性別、年齡、語氣）
+    filterAdvanced: publicProcedure
+      .input(z.object({
+        language: z.enum(["cantonese", "mandarin", "english", "clone"]).optional(),
+        gender: z.enum(["male", "female"]).optional(),
+        ageGroup: z.enum(["child", "teen", "young", "adult", "middle", "elder"]).optional(),
+        style: z.enum(["narrator", "character", "news", "commercial", "storytelling", "assistant", "cartoon", "emotional", "professional"]).optional(),
+        searchText: z.string().optional(),
+      }))
+      .query(({ input }) => {
+        const allActors = getAllVoiceActorsConfig();
+        let filtered = allActors;
+
+        if (input.language && input.language !== "clone") {
+          filtered = filtered.filter((actor: any) => actor.language === input.language);
+        }
+
+        if (input.gender) {
+          filtered = filtered.filter((actor: any) => actor.gender === input.gender);
+        }
+
+        if (input.ageGroup) {
+          filtered = filtered.filter((actor: any) => actor.ageGroup === input.ageGroup);
+        }
+
+        if (input.style) {
+          filtered = filtered.filter((actor: any) => actor.styles && actor.styles.includes(input.style));
+        }
+
+        if (input.searchText) {
+          const searchLower = input.searchText.toLowerCase();
+          filtered = filtered.filter((actor: any) => 
+            actor.name.toLowerCase().includes(searchLower) ||
+            actor.description?.toLowerCase().includes(searchLower)
+          );
+        }
+
+        return {
+          actors: filtered,
+          total: filtered.length,
+          filters: {
+            language: input.language,
+            gender: input.gender,
+            ageGroup: input.ageGroup,
+            style: input.style,
+          },
+        };
+      }),
+
     // AI 自動匹配配音員
     matchByDescription: publicProcedure
       .input(z.object({ description: z.string() }))
