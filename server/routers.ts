@@ -1580,7 +1580,7 @@ async function processLongVideoTask(taskId: string): Promise<void> {
       scenes: analysisResult.scenes.map((scene, idx) => ({
         id: idx + 1,
         description: scene.description,
-        narration: scene.narration,
+        narrationSegments: scene.narrationSegments,
         imagePrompt: scene.imagePrompt,
         status: 'pending' as const
       }))

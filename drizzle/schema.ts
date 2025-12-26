@@ -71,7 +71,7 @@ export type InsertVideoTask = typeof videoTasks.$inferInsert;
 export interface SceneData {
   id: number;
   description: string;
-  narration: string;
+  narrationSegments: { segmentId: number; text: string; }[];
   imagePrompt: string;
   imageUrl?: string;
   videoUrl?: string;

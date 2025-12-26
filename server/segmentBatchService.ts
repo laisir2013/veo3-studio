@@ -68,7 +68,7 @@ export interface Segment {
   startTime: number; // 片段開始時間（秒）
   endTime: number;   // 片段結束時間（秒）
   prompt?: string;
-  narration?: string;
+  narrationSegmentIndex?: number;
 }
 
 // 批次狀態
@@ -86,7 +86,7 @@ export interface Batch {
 export interface SceneInfo {
   id: number;
   description: string;
-  narration: string;
+  narrationSegments: { segmentId: number; text: string; }[];
   imagePrompt?: string;
   status: "pending" | "generating" | "completed" | "failed";
 }
@@ -331,10 +331,26 @@ export function startNextBatch(taskId: string): Batch | null {
     if (taskSegment) {
       taskSegment.status = "generating";
       // 從 scenes 中獲取對應的旁白和描述
-      const sceneData = task.scenes?.[taskSegment.id - 1];
-      if (sceneData) {
-        taskSegment.narration = sceneData.narration;
-        taskSegment.prompt = sceneData.description || sceneData.imagePrompt;
+      // 找到包含此片段的場景和旁白片段
+      let sceneData: SceneInfo | undefined;
+    let narrationSegment: { segmentId: number; text: string; } | undefined;
+
+    // 遍歷場景，找到包含此片段的場景
+    for (const scene of task.scenes || []) {
+      if (scene.narrationSegments) {
+        narrationSegment = scene.narrationSegments.find(seg => seg.segmentId === taskSegment.id);
+        if (narrationSegment) {
+          sceneData = scene;
+          break;
+        }
+      }
+    }
+
+    if (sceneData && narrationSegment) {
+        taskSegment.narration = narrationSegment.text;
+      taskSegment.narrationSegmentIndex = narrationSegment.segmentId;
+        // 由於一個場景可能包含多個旁白片段，我們需要確保每個片段都使用相同的場景描述
+      taskSegment.prompt = sceneData.description || sceneData.imagePrompt;
       }
     }
   });

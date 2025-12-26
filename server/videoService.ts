@@ -102,12 +102,12 @@ export async function analyzeStory(
   
   const systemPrompt = `你是一個專業的視頻腳本分析師。請將用戶的故事分解為 3-5 個場景，每個場景包含：
 1. 場景描述（用於生成視頻提示詞，必須用英文，應是畫面內容的精確描述）
-2. 旁白文字（用於語音合成，應是敘事性、連貫性的故事文本）
+2. 旁白腳本（用於語音合成，應是敘事性、連貫性的故事文本，請將旁白分為多個片段，每個片段的長度應控制在 8 秒語音內，約 30-50 個中文字）
 3. 圖片提示詞（用於 Midjourney 生成角色圖片，必須用英文）
 
 重要：
 - 場景描述 (description) 必須使用英文，應是畫面內容的精確描述
-- 旁白文字 (narration) 必須使用${langConfig.outputLanguage}，應是連貫的敘事文本，與畫面描述有區別
+- 旁白腳本 (narrationSegments) 必須使用${langConfig.outputLanguage}，應是連貫的敘事文本，與畫面描述有區別，並已分段（每段約 8 秒語音長度）
 - 圖片提示詞 (imagePrompt) 必須使用英文
 
 請以 JSON 格式返回，格式如下：
@@ -116,7 +116,10 @@ export async function analyzeStory(
     {
       "id": 1,
       "description": "English scene description for video generation, detailed and vivid",
-      "narration": "旁白文字（必須用${langConfig.outputLanguage}）",
+      "narrationSegments": [
+        { "segmentId": 1, "text": "旁白片段一（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" },
+        { "segmentId": 2, "text": "旁白片段二（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" }
+      ],
       "imagePrompt": "English image prompt with character features and scene details"
     }
   ],
@@ -275,7 +278,7 @@ ${visualStyle ? `視覺風格：${visualStyle}` : ""}
     scenes: result.scenes.map((s: any, index: number) => ({
       id: index + 1,
       description: s.description,
-      narration: s.narration,
+      narrationSegments: s.narrationSegments,
       imagePrompt: s.imagePrompt,
       status: "pending" as const,
     })),

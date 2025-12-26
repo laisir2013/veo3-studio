@@ -1359,7 +1359,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           startTime: seg.startTime,
                           endTime: seg.endTime,
                           description: seg.prompt || seg.description || customScenes[seg.id - 1]?.description,
-                          narration: seg.narration || customScenes[seg.id - 1]?.narration,
+                          narration: seg.narration || customScenes[seg.id - 1]?.narrationSegments?.[0]?.text,
                           videoUrl: seg.videoUrl,
                           audioUrl: seg.audioUrl,
                           imageUrl: seg.imageUrl,
@@ -1375,7 +1375,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           startTime: index * 8,
                           endTime: (index + 1) * 8,
                           description: scene.prompt || scene.description,
-                          narration: scene.narration,
+                          narration: scene.narrationSegments?.[0]?.text,
                           videoUrl: scene.videoUrl,
                           audioUrl: scene.audioUrl,
                           imageUrl: scene.imageUrl,
@@ -1396,7 +1396,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           startTime,
                           endTime,
                           description: sceneDescription,
-                          narration: customScenes[index]?.narration,
+                          narration: customScenes[index]?.narrationSegments?.[0]?.text,
                         };
                       });
                     })()}

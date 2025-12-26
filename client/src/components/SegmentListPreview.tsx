@@ -79,7 +79,7 @@ export interface SegmentData {
   startTime: number;
   endTime: number;
   prompt?: string;
-  narration?: string;
+  narration?: string; // 保持兼容性，但現在用於顯示單個片段的旁白
   imageUrl?: string;
   description?: string;
   voiceActorId?: string;
