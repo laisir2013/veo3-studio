@@ -47,6 +47,7 @@ import { SceneManager, type Scene } from "@/components/SceneManager";
 import { MediaSettings, type MediaSettingsState } from "@/components/MediaSettings";
 import { VoiceCloneCard } from "@/components/VoiceCloneCard";
 import { NarrationScriptEditor } from "@/components/NarrationScriptEditor";
+import { SubtitleEditor } from "@/components/SubtitleEditor";
 import { toast } from "sonner";
 
 // 速度模式預設配置
@@ -1596,6 +1597,20 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                         )
                       ))}
                     </div>
+                  )}
+
+                  {/* 字幕編輯器 - 在旁白編輯後顯示 */}
+                  {taskStatus.scenes && taskStatus.scenes.length > 0 && taskStatus.status === "pending" && (
+                    <SubtitleEditor
+                      taskId={longVideoTaskId || ""}
+                      narrationSegments={taskStatus.scenes.flatMap((scene: any) =>
+                        scene.narrationSegments || []
+                      )}
+                      language={selectedLanguage === "clone" ? "cantonese" : selectedLanguage}
+                      onSubtitlesGenerated={(subtitles) => {
+                        toast.success("字幕已生成");
+                      }}
+                    />
                   )}
 
                   {/* 完成後顯示視頻 */}
