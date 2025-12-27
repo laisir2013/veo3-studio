@@ -113,8 +113,10 @@ export const RETRY_CONFIG = {
 
 // 視頻生成備用鏈（按優先級排序）
 export const VIDEO_FALLBACK_CHAIN = {
-  "veo3.1-pro": ["veo3.1-fast", "runway", "kling"],
-  "veo3.1-fast": ["runway", "kling"],
+  "veo3.1-pro": ["veo3.1-fast", "veo3.1", "runway", "kling"],
+  "veo3.1-fast": ["veo3.1", "runway", "kling"],
+  "veo3.1": ["veo3.1-fast", "runway", "kling"],
+  "veo-3.1": ["veo3.1-fast", "veo3.1", "runway", "kling"],
   "runway": ["kling"],
   "kling": [],
 } as const;
