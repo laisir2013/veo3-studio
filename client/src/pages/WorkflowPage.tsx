@@ -145,8 +145,8 @@ export default function WorkflowPage() {
   // 步驟3：配音員篩選
   const [selectedVoiceActor, setSelectedVoiceActor] = useState("");
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<"male" | "female" | "">("");
-  const [voiceAgeFilter, setVoiceAgeFilter] = useState("");
-  const [voiceStyleFilter, setVoiceStyleFilter] = useState("");
+  const [voiceAgeFilter, setVoiceAgeFilter] = useState("all");
+  const [voiceStyleFilter, setVoiceStyleFilter] = useState("all");
   const [playingActorId, setPlayingActorId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -193,8 +193,8 @@ export default function WorkflowPage() {
   const filteredVoiceActors = allVoiceActors.filter((actor) => {
     if (actor.language !== selectedLanguage) return false;
     if (voiceGenderFilter && actor.gender !== voiceGenderFilter) return false;
-    if (voiceAgeFilter && actor.ageGroup !== voiceAgeFilter) return false;
-    if (voiceStyleFilter && actor.style !== voiceStyleFilter) return false;
+    if (voiceAgeFilter && voiceAgeFilter !== "all" && actor.ageGroup !== voiceAgeFilter) return false;
+    if (voiceStyleFilter && voiceStyleFilter !== "all" && actor.style !== voiceStyleFilter) return false;
     return true;
   });
 
@@ -886,7 +886,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       <SelectValue placeholder="全部" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">全部</SelectItem>
+                      <SelectItem value="all">全部</SelectItem>
                       <SelectItem value="young">年輕</SelectItem>
                       <SelectItem value="adult">成年</SelectItem>
                       <SelectItem value="middle">中年</SelectItem>
@@ -902,7 +902,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       <SelectValue placeholder="全部" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">全部</SelectItem>
+                      <SelectItem value="all">全部</SelectItem>
                       <SelectItem value="narrator">旁白</SelectItem>
                       <SelectItem value="news">新聞</SelectItem>
                       <SelectItem value="storytelling">故事</SelectItem>
