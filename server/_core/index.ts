@@ -48,11 +48,21 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "缺少視頻主題" });
       }
       
+      // 處理 duration：如果小於 1，則視為分鐘數（如 0.27）；否則視為秒數（如 16）
+      // 最終轉換為分鐘數傳遞給 generateOutline
+      let durationMinutes = parseFloat(duration) || 3;
+      if (durationMinutes >= 1 && durationMinutes < 60) {
+        // 如果是秒數（16, 24 等），轉換為分鐘
+        durationMinutes = durationMinutes / 60;
+      }
+      // 確保最小值為 0.1 分鐘（6 秒）
+      durationMinutes = Math.max(0.1, durationMinutes);
+      
       const result = await generateOutline({
         title,
         language: language || "cantonese",
-        duration: parseInt(duration) || 3,
-        segmentCount: parseInt(segmentCount) || 10,
+        duration: durationMinutes,
+        segmentCount: parseInt(segmentCount) || Math.ceil(durationMinutes * 60 / 8),
       });
       
       res.json({ 
