@@ -101,34 +101,50 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     return { success: false, error: "沒有可合併的視頻" };
   }
 
-  // 如果只有一個視頻且不需要處理，直接返回
-  if (videoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none") {
-    return { success: true, videoUrl: videoUrls[0], mode: "cloud" };
+  // 過濾有效的視頻 URL
+  const validVideoUrls = videoUrls.filter(url => url && url.startsWith("http"));
+  if (validVideoUrls.length === 0) {
+    return { success: false, error: "沒有有效的視頻 URL" };
   }
 
-  console.log(`[VideoMerge] 開始合併 ${videoUrls.length} 個視頻片段`);
+  // 如果只有一個視頻且不需要處理，直接返回
+  if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none") {
+    console.log(`[VideoMerge] 只有一個視頻，直接返回`);
+    return { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
+  }
+
+  console.log(`[VideoMerge] 開始合併 ${validVideoUrls.length} 個視頻片段`);
+  console.log(`[VideoMerge] 視頻 URLs:`, validVideoUrls.slice(0, 3).map(u => u.substring(0, 50) + '...'));
   console.log(`[VideoMerge] 設置: BGM=${bgmType}, 字幕=${subtitleStyle}, 解析度=${resolution}`);
 
   // 第一層：雲端合併（VectorEngine API 輪換）
-  const cloudResult = await tryCloudMerge(videoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
-  if (cloudResult.success) {
-    console.log(`[VideoMerge] ✅ 雲端合併成功`);
-    return { ...cloudResult, mode: "cloud" };
+  try {
+    const cloudResult = await tryCloudMerge(validVideoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    if (cloudResult.success) {
+      console.log(`[VideoMerge] ✅ 雲端合併成功`);
+      return { ...cloudResult, mode: "cloud" };
+    }
+    console.log(`[VideoMerge] ⚠️ 雲端合併失敗: ${cloudResult.error}`);
+  } catch (error) {
+    console.log(`[VideoMerge] ⚠️ 雲端合併異常:`, error);
   }
-  console.log(`[VideoMerge] ⚠️ 雲端合併失敗: ${cloudResult.error}`);
 
   // 第二層：本地 FFmpeg 合併
-  const localResult = await tryLocalFFmpegMerge(videoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
-  if (localResult.success) {
-    console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
-    return { ...localResult, mode: "local" };
+  try {
+    const localResult = await tryLocalFFmpegMerge(validVideoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    if (localResult.success) {
+      console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
+      return { ...localResult, mode: "local" };
+    }
+    console.log(`[VideoMerge] ⚠️ 本地 FFmpeg 合併失敗: ${localResult.error}`);
+  } catch (error) {
+    console.log(`[VideoMerge] ⚠️ 本地 FFmpeg 合併異常:`, error);
   }
-  console.log(`[VideoMerge] ⚠️ 本地 FFmpeg 合併失敗: ${localResult.error}`);
 
-  // 第三層：緊急模式
+  // 第三層：緊急模式 - 100% 保證返回結果
   console.log(`[VideoMerge] 🚨 啟動緊急模式`);
   mergeStats.emergencyActivations++;
-  return emergencyMode(videoUrls, narrations);
+  return emergencyMode(validVideoUrls, narrations);
 }
 
 /**
@@ -154,7 +170,7 @@ async function tryCloudMerge(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const apiKey = getNextApiKey();
-      console.log(`[CloudMerge] 嘗試 ${attempt + 1}/${maxRetries}`);
+      console.log(`[CloudMerge] 嘗試 ${attempt + 1}/${maxRetries}, API Key: ${apiKey.substring(0, 10)}...`);
 
       // 構建合併請求
       const mergeRequest = {
@@ -176,6 +192,9 @@ async function tryCloudMerge(
       };
 
       // 調用視頻合併 API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 秒超時
+
       const response = await fetch(`${VIDEO_API_BASE}/video/merge`, {
         method: "POST",
         headers: {
@@ -183,10 +202,16 @@ async function tryCloudMerge(
           "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify(mergeRequest),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
+
+      console.log(`[CloudMerge] API 響應狀態: ${response.status}`);
 
       if (response.ok) {
         const result = await response.json();
+        console.log(`[CloudMerge] API 響應:`, JSON.stringify(result).substring(0, 200));
         if (result.url) {
           mergeStats.cloudSuccesses++;
           return {
@@ -204,6 +229,12 @@ async function tryCloudMerge(
         await sleep(Math.min(delay, RETRY_CONFIG.maxDelay));
         continue;
       }
+
+      // 記錄錯誤響應
+      try {
+        const errorBody = await response.text();
+        console.log(`[CloudMerge] 錯誤響應: ${errorBody.substring(0, 200)}`);
+      } catch {}
 
       lastError = `API 返回 ${response.status}`;
     } catch (error) {
@@ -223,6 +254,9 @@ async function tryCloudMerge(
     console.log(`[CloudMerge] 嘗試備用 API：視頻拼接`);
     const apiKey = getNextApiKey();
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     const response = await fetch(`${VIDEO_API_BASE}/video/concat`, {
       method: "POST",
       headers: {
@@ -234,7 +268,12 @@ async function tryCloudMerge(
         transition: "fade",
         transitionDuration: 0.5,
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
+
+    console.log(`[CloudMerge] 備用 API 響應狀態: ${response.status}`);
 
     if (response.ok) {
       const result = await response.json();
@@ -270,6 +309,7 @@ async function tryLocalFFmpegMerge(
     // 檢查 FFmpeg 是否可用
     const ffmpegAvailable = await checkFFmpegAvailable();
     if (!ffmpegAvailable) {
+      console.log(`[LocalFFmpeg] FFmpeg 不可用`);
       return { success: false, error: "FFmpeg 不可用" };
     }
 
@@ -281,6 +321,7 @@ async function tryLocalFFmpegMerge(
 
     for (let i = 0; i < videoUrls.length; i++) {
       const localPath = `${tempDir}/segment_${i}.mp4`;
+      console.log(`[LocalFFmpeg] 下載視頻 ${i + 1}/${videoUrls.length}...`);
       const downloaded = await downloadVideo(videoUrls[i], localPath);
       if (downloaded) {
         downloadedFiles.push(localPath);
@@ -290,6 +331,8 @@ async function tryLocalFFmpegMerge(
     if (downloadedFiles.length === 0) {
       return { success: false, error: "無法下載視頻文件" };
     }
+
+    console.log(`[LocalFFmpeg] 成功下載 ${downloadedFiles.length} 個視頻`);
 
     // 使用 FFmpeg 合併
     const outputPath = `${tempDir}/merged.${outputFormat}`;
@@ -337,13 +380,14 @@ function emergencyMode(videoUrls: string[], narrations: string[]): MergeResult {
   }
 
   // 返回第一個視頻作為主視頻，同時提供所有片段
+  // 這樣前端可以顯示預覽，用戶也可以下載所有片段
   return {
     success: true,
     videoUrl: validUrls[0],
     segmentUrls: validUrls,
     mode: "emergency",
-    message: `緊急模式：合併失敗，返回 ${validUrls.length} 個獨立片段。您可以手動下載並使用視頻編輯軟件合併。`,
-    duration: validUrls.length * 8, // 估算總時長
+    message: `緊急模式：合併服務暫時不可用，已返回 ${validUrls.length} 個獨立片段。您可以：\n1. 預覽第一個片段\n2. 下載所有片段後使用視頻編輯軟件合併\n3. 稍後重試合併`,
+    duration: validUrls.length * 8, // 估算總時長（每個片段約 8 秒）
   };
 }
 
