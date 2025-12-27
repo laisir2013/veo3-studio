@@ -1553,9 +1553,74 @@ Total: ${segmentCount} segments of 8 seconds each`;
         );
 
       case 14:
+        // 下載所有片段的函數
+        const handleDownloadAllSegments = async () => {
+          const completedSegments = segments.filter(seg => seg.status === "completed" && seg.videoUrl);
+          if (completedSegments.length === 0) {
+            toast.error("沒有已完成的片段可下載");
+            return;
+          }
+
+          toast.info(`開始下載 ${completedSegments.length} 個片段...`);
+
+          // 逐個下載片段
+          for (let i = 0; i < completedSegments.length; i++) {
+            const seg = completedSegments[i];
+            try {
+              const response = await fetch(seg.videoUrl!);
+              const blob = await response.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `片段_${seg.id.toString().padStart(2, '0')}.mp4`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              window.URL.revokeObjectURL(url);
+              
+              // 每個下載間隔 500ms，避免瀏覽器阻擋
+              if (i < completedSegments.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            } catch (error) {
+              console.error(`下載片段 ${seg.id} 失敗:`, error);
+              // 如果 fetch 失敗，嘗試直接打開連結
+              window.open(seg.videoUrl, '_blank');
+            }
+          }
+
+          toast.success(`已下載 ${completedSegments.length} 個片段`);
+        };
+
+        const completedSegmentsCount = segments.filter(seg => seg.status === "completed" && seg.videoUrl).length;
+
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
+              {/* 下載所有片段區塊 */}
+              <div className="p-3 sm:p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium text-sm sm:text-base">下載片段</h4>
+                  <Badge variant="secondary" className="text-xs">
+                    {completedSegmentsCount} 個片段
+                  </Badge>
+                </div>
+                <p className="text-xs text-zinc-400 mb-3">
+                  在合併前，您可以先下載所有已生成的片段作為備份
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadAllSegments}
+                  disabled={completedSegmentsCount === 0}
+                  className="w-full"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  一次下載所有片段 ({completedSegmentsCount})
+                </Button>
+              </div>
+
+              {/* 合併設定區塊 */}
               <div className="p-3 sm:p-4 bg-zinc-800/50 rounded-lg">
                 <h4 className="font-medium mb-2 text-sm sm:text-base">合併設定</h4>
                 <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs sm:text-sm">
