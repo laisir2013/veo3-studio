@@ -35,12 +35,13 @@ export type SubtitleStyle = keyof typeof SUBTITLE_STYLES;
 
 export interface MergeOptions {
   videoUrls: string[];
-  narrations?: string[];
+  audioUrls?: string[];      // ✅ 新增：旁白音頻 URL，與 videoUrls 索引對齊
+  narrations?: string[];     // 旁白文字（可選，用於字幕）
   bgmType?: BgmType;
   subtitleStyle?: SubtitleStyle;
   outputFormat?: "mp4" | "webm";
   resolution?: "720p" | "1080p" | "4k";
-  // 新增：音量控制
+  // 音量控制
   narrationVolume?: number;  // 0-100
   bgmVolume?: number;        // 0-100
   originalVolume?: number;   // 0-100
@@ -87,6 +88,7 @@ export function getMergeStats(): MergeStats {
 export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
   const {
     videoUrls,
+    audioUrls = [],  // ✅ 新增：旁白音頻 URL
     narrations = [],
     bgmType = "none",
     subtitleStyle = "none",
@@ -96,6 +98,10 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     bgmVolume = 30,
     originalVolume = 50,
   } = options;
+
+  // ✅ 新增：記錄旁白音頻狀態
+  const validAudioUrls = audioUrls.filter(url => url && url.startsWith("http"));
+  console.log(`[VideoMerge] 旁白音頻狀態: ${validAudioUrls.length}/${videoUrls.length} 個片段有音頻`);
 
   if (videoUrls.length === 0) {
     return { success: false, error: "沒有可合併的視頻" };
@@ -152,7 +158,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
 
   // 第一層：雲端合併（VectorEngine API 輪換）
   try {
-    const cloudResult = await tryCloudMerge(validVideoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    const cloudResult = await tryCloudMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (cloudResult.success) {
       console.log(`[VideoMerge] ✅ 雲端合併成功`);
       return { ...cloudResult, mode: "cloud" };
@@ -164,7 +170,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
 
   // 第二層：本地 FFmpeg 合併
   try {
-    const localResult = await tryLocalFFmpegMerge(validVideoUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
       return { ...localResult, mode: "local" };
@@ -185,6 +191,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
  */
 async function tryCloudMerge(
   videoUrls: string[],
+  audioUrls: string[],  // ✅ 新增：旁白音頻 URL
   narrations: string[],
   bgmType: BgmType,
   subtitleStyle: SubtitleStyle,
@@ -209,6 +216,7 @@ async function tryCloudMerge(
       const mergeRequest = {
         videos: videoUrls.map((url, index) => ({
           url,
+          audioUrl: audioUrls[index] || null,  // ✅ 新增：旁白音頻 URL
           narration: narrations[index] || null,
         })),
         bgm: BGM_OPTIONS[bgmType].url,
@@ -327,6 +335,7 @@ async function tryCloudMerge(
  */
 async function tryLocalFFmpegMerge(
   videoUrls: string[],
+  audioUrls: string[],  // ✅ 新增：旁白音頻 URL
   narrations: string[],
   bgmType: BgmType,
   subtitleStyle: SubtitleStyle,
@@ -350,27 +359,46 @@ async function tryLocalFFmpegMerge(
 
     // 下載所有視頻到臨時目錄
     const tempDir = `/tmp/veo3-merge-${Date.now()}`;
-    const downloadedFiles: string[] = [];
+    const downloadedVideoFiles: string[] = [];
+    const downloadedAudioFiles: string[] = [];
 
+    // 下載視頻
     for (let i = 0; i < videoUrls.length; i++) {
       const localPath = `${tempDir}/segment_${i}.mp4`;
       console.log(`[LocalFFmpeg] 下載視頻 ${i + 1}/${videoUrls.length}...`);
       const downloaded = await downloadVideo(videoUrls[i], localPath);
       if (downloaded) {
-        downloadedFiles.push(localPath);
+        downloadedVideoFiles.push(localPath);
       }
     }
 
-    if (downloadedFiles.length === 0) {
+    // ✅ 新增：下載旁白音頻
+    for (let i = 0; i < audioUrls.length; i++) {
+      if (audioUrls[i] && audioUrls[i].startsWith("http")) {
+        const localPath = `${tempDir}/audio_${i}.mp3`;
+        console.log(`[LocalFFmpeg] 下載音頻 ${i + 1}/${audioUrls.length}...`);
+        const downloaded = await downloadVideo(audioUrls[i], localPath);
+        if (downloaded) {
+          downloadedAudioFiles.push(localPath);
+        } else {
+          downloadedAudioFiles.push(""); // 保持索引對齊
+        }
+      } else {
+        downloadedAudioFiles.push(""); // 無音頻
+      }
+    }
+
+    if (downloadedVideoFiles.length === 0) {
       return { success: false, error: "無法下載視頻文件" };
     }
 
-    console.log(`[LocalFFmpeg] 成功下載 ${downloadedFiles.length} 個視頻`);
+    console.log(`[LocalFFmpeg] 成功下載 ${downloadedVideoFiles.length} 個視頻, ${downloadedAudioFiles.filter(a => a).length} 個音頻`);
 
     // 使用 FFmpeg 合併
     const outputPath = `${tempDir}/merged.${outputFormat}`;
-    const ffmpegResult = await runFFmpegMerge(downloadedFiles, outputPath, {
+    const ffmpegResult = await runFFmpegMerge(downloadedVideoFiles, outputPath, {
       bgmUrl: BGM_OPTIONS[bgmType].url,
+      audioFiles: downloadedAudioFiles, // ✅ 新增：傳遞旁白音頻文件
       narrationVolume,
       bgmVolume,
       originalVolume,
@@ -467,12 +495,14 @@ async function downloadVideo(url: string, localPath: string): Promise<boolean> {
 
 /**
  * 使用 FFmpeg 合併視頻
+ * ✅ 新增：支持混入旁白音頻
  */
 async function runFFmpegMerge(
   inputFiles: string[],
   outputPath: string,
   options: {
     bgmUrl: string | null;
+    audioFiles?: string[];  // ✅ 新增：旁白音頻文件列表
     narrationVolume: number;
     bgmVolume: number;
     originalVolume: number;
@@ -490,12 +520,51 @@ async function runFFmpegMerge(
     const listContent = inputFiles.map(f => `file '${f}'`).join("\n");
     fs.writeFileSync(listPath, listContent);
 
+    // ✅ 新增：檢查是否有旁白音頻需要混入
+    const validAudioFiles = options.audioFiles?.filter(f => f && fs.existsSync(f)) || [];
+    const hasNarrationAudio = validAudioFiles.length > 0;
+    
+    console.log(`[FFmpeg] 旁白音頻: ${validAudioFiles.length} 個有效文件`);
+
     // 構建 FFmpeg 命令
     let ffmpegCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}"`;
 
-    // 添加音量調整
-    const volumeFilter = `volume=${options.originalVolume / 100}`;
-    ffmpegCmd += ` -af "${volumeFilter}"`;
+    // ✅ 新增：如果有旁白音頻，先合併所有音頻文件
+    let narrationAudioPath = "";
+    if (hasNarrationAudio) {
+      // 創建旁白音頻列表
+      const audioListPath = outputPath.replace(/\.[^.]+$/, "_audio_list.txt");
+      const audioListContent = validAudioFiles.map(f => `file '${f}'`).join("\n");
+      fs.writeFileSync(audioListPath, audioListContent);
+      
+      // 先合併所有旁白音頻
+      narrationAudioPath = outputPath.replace(/\.[^.]+$/, "_narration.mp3");
+      const concatAudioCmd = `ffmpeg -y -f concat -safe 0 -i "${audioListPath}" -c:a libmp3lame -b:a 128k "${narrationAudioPath}"`;
+      console.log(`[FFmpeg] 合併旁白音頻: ${concatAudioCmd}`);
+      
+      try {
+        await execAsync(concatAudioCmd, { timeout: 120000 }); // 2 分鐘超時
+        console.log(`[FFmpeg] 旁白音頻合併完成`);
+      } catch (audioError) {
+        console.warn(`[FFmpeg] 旁白音頻合併失敗:`, audioError);
+        narrationAudioPath = ""; // 失敗則不使用旁白
+      }
+    }
+
+    // 如果有合併後的旁白音頻，添加到 FFmpeg 命令
+    if (narrationAudioPath && fs.existsSync(narrationAudioPath)) {
+      ffmpegCmd += ` -i "${narrationAudioPath}"`;
+      
+      // 使用 amix 混合原音和旁白
+      const originalVol = options.originalVolume / 100;
+      const narrationVol = options.narrationVolume / 100;
+      ffmpegCmd += ` -filter_complex "[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]"`;
+      ffmpegCmd += ` -map 0:v:0 -map "[aout]"`;
+    } else {
+      // 沒有旁白音頻，只調整原音量
+      const volumeFilter = `volume=${options.originalVolume / 100}`;
+      ffmpegCmd += ` -af "${volumeFilter}"`;
+    }
 
     // 設置輸出格式
     ffmpegCmd += ` -c:v libx264 -preset fast -crf 23`;

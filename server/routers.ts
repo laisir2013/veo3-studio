@@ -780,12 +780,15 @@ export const appRouter = router({
         originalVolume: z.number().min(0).max(100).default(10),
         // 新增：允許前端直接傳遞片段 URL，當任務記錄丟失時使用
         videoUrls: z.array(z.string()).optional(),
+        // ✅ 新增：旁白音頻 URL，用於合併時混入旁白
+        audioUrls: z.array(z.string()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const task = getLongVideoTask(input.taskId);
         
         // 如果任務不存在但有傳遞 videoUrls，直接使用傳遞的 URL
         let videoUrls: string[] = [];
+        let audioUrls: string[] = []; // ✅ 新增：旁白音頻 URL
         let narrations: string[] = [];
         let taskIdForLog = input.taskId;
         
@@ -802,11 +805,17 @@ export const appRouter = router({
             throw new Error("沒有已完成的片段可以合併");
           }
           videoUrls = completedSegments.map(seg => seg.videoUrl!);
+          // ✅ 新增：從任務中獲取旁白音頻 URL
+          audioUrls = input.audioUrls && input.audioUrls.length === completedSegments.length
+            ? input.audioUrls
+            : completedSegments.map(seg => seg.audioUrl || "");
           narrations = completedSegments.map(seg => seg.narration || "");
         } else if (input.videoUrls && input.videoUrls.length > 0) {
           // 任務不存在但有傳遞 URL，使用傳遞的 URL
           console.log(`[LongVideo ${input.taskId}] 任務記錄已丟失，使用前端傳遞的 ${input.videoUrls.length} 個片段 URL`);
           videoUrls = input.videoUrls;
+          // ✅ 新增：使用前端傳遞的旁白音頻 URL
+          audioUrls = input.audioUrls || input.videoUrls.map(() => "");
           narrations = input.videoUrls.map(() => "");
         } else {
           throw new Error("任務不存在，請重新生成視頻");
@@ -816,8 +825,10 @@ export const appRouter = router({
 
         try {
           // 調用視頻合併服務
+          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${audioUrls.filter(u => u).length}`);
           const mergeResult = await mergeVideos({
             videoUrls: videoUrls,
+            audioUrls: audioUrls, // ✅ 新增：傳遞旁白音頻 URL
             narrations: narrations,
             bgmType: (task?.bgmType || "none") as BgmType,
             subtitleStyle: (task?.subtitleStyle || "none") as SubtitleStyle,

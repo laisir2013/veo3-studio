@@ -773,18 +773,24 @@ export default function WorkflowPage() {
   // 步驟14：合併視頻（三層容錯機制）
   const handleMergeVideo = async () => {
     // 🔍 GPT 建議：添加詳細的調試日誌
-    const completedSegments = segments.filter(seg => seg.status === "completed" && seg.videoUrl);
+    // 按 id 排序確保順序一致
+    const completedSegments = segments
+      .filter(seg => seg.status === "completed" && seg.videoUrl)
+      .sort((a, b) => a.id - b.id);
+    
     const completedVideoUrls = completedSegments.map(seg => seg.videoUrl!);
+    const completedAudioUrls = completedSegments.map(seg => seg.audioUrl || "");
     
     console.log("[Merge Check] 合併前檢查:", {
       taskId,
       totalSegments: segments.length,
       completedCount: completedSegments.length,
-      statuses: segments.map(s => ({ id: s.id, status: s.status, hasUrl: !!s.videoUrl })),
-      urls: completedVideoUrls.map(url => ({
+      statuses: segments.map(s => ({ id: s.id, status: s.status, hasVideoUrl: !!s.videoUrl, hasAudioUrl: !!s.audioUrl })),
+      videoUrls: completedVideoUrls.map(url => ({
         url: url?.substring(0, 60) + "...",
         ext: url?.split("?")[0].split(".").pop()?.toLowerCase(),
       })),
+      audioUrls: completedAudioUrls.map(url => url ? url.substring(0, 60) + "..." : "(無)"),
     });
 
     // 檢查是否有可用的視頻
@@ -793,6 +799,14 @@ export default function WorkflowPage() {
       console.error("[Merge Check] ❌ 沒有可用的視頻 URL");
       // 不要跳回 Step 11，讓用戶自己決定
       return;
+    }
+
+    // 檢查缺少旁白音頻的片段（警告但不阻止）
+    const missingAudioSegments = completedSegments.filter(seg => !seg.audioUrl);
+    if (missingAudioSegments.length > 0) {
+      const missingIds = missingAudioSegments.map(s => s.id).join(", ");
+      console.warn(`[Merge Check] ⚠️ 以下片段缺少旁白音頻: ${missingIds}`);
+      toast.warning(`片段 ${missingIds} 缺少旁白音頻，合併後可能沒有旁白聲音`, { duration: 5000 });
     }
 
     if (!taskId) {
@@ -809,7 +823,8 @@ export default function WorkflowPage() {
         narrationVolume,
         bgmVolume,
         originalVolume: videoVolume,
-        videoUrls: completedVideoUrls, // 傳遞片段 URL 作為備用
+        videoUrls: completedVideoUrls, // 傳遞片段 URL
+        audioUrls: completedAudioUrls, // ✅ 新增：傳遞旁白音頻 URL
       });
 
       console.log("[Merge Result]", result);
@@ -1561,6 +1576,45 @@ Total: ${segmentCount} segments of 8 seconds each`;
                         controls
                       />
                     )}
+                    
+                    {/* 旁白音頻預覽 */}
+                    <div className="mt-3 p-2 bg-zinc-900/50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <span className="text-xs text-zinc-400">旁白音頻</span>
+                          {seg.audioUrl ? (
+                            <div className="text-xs text-green-500 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              已生成
+                            </div>
+                          ) : (
+                            <div className="text-xs text-red-500 flex items-center gap-1">
+                              <XCircle className="w-3 h-3" />
+                              未生成
+                            </div>
+                          )}
+                        </div>
+                        
+                        {seg.audioUrl && (
+                          <audio
+                            controls
+                            preload="none"
+                            src={seg.audioUrl}
+                            className="h-8 flex-1"
+                            onError={(e) => {
+                              console.warn("[Audio] 載入失敗", { segmentId: seg.id, audioUrl: seg.audioUrl });
+                            }}
+                          />
+                        )}
+                      </div>
+                      
+                      {/* 旁白文字預覽 */}
+                      {seg.narration && (
+                        <div className="mt-2 text-xs text-zinc-400 line-clamp-2">
+                          <span className="text-zinc-500">旁白：</span>{seg.narration}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
