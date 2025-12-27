@@ -95,6 +95,9 @@ export type InvokeResult = {
     completion_tokens: number;
     total_tokens: number;
   };
+  // 自定義字段：API 來源信息
+  apiProvider?: string;  // "vectorengine" | "openai" | "anthropic" | "forge"
+  apiProviderName?: string;  // 人類可讀的名稱，如 "Vector Engine" | "Manus AI"
 };
 
 export type JsonSchema = {
@@ -500,6 +503,14 @@ async function invokeLLMWithConfig(params: InvokeParams, config: ApiConfig): Pro
   return invokeOpenAILLM(params, config);
 }
 
+// API 提供者名稱映射
+const API_PROVIDER_NAMES: Record<string, string> = {
+  "vectorengine": "Vector Engine",
+  "openai": "OpenAI",
+  "anthropic": "Anthropic Claude",
+  "forge": "Manus AI",  // Manus 內置 API
+};
+
 // 主要的 LLM 調用函數（帶後備方案）
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
@@ -513,6 +524,16 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       console.log(`[LLM Fallback] Trying ${config.provider} API...`);
       const result = await invokeLLMWithConfig(params, config);
       console.log(`[LLM Fallback] ${config.provider} API succeeded!`);
+      
+      // 添加 API 來源信息
+      result.apiProvider = config.provider;
+      result.apiProviderName = API_PROVIDER_NAMES[config.provider] || config.provider;
+      
+      // 如果使用了 Manus API，記錄警告
+      if (config.provider === "forge") {
+        console.log(`[LLM] ℹ️ 正在使用 Manus AI 後備 API`);
+      }
+      
       return result;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

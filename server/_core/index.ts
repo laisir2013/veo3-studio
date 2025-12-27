@@ -36,6 +36,40 @@ async function startServer() {
   registerOAuthRoutes(app);
   
   // Custom API routes
+  
+  // 生成故事大綱 API
+  app.post("/api/generate-outline", async (req, res) => {
+    try {
+      const { generateOutline } = await import("../outlineGenerationService");
+      const { title, language, duration, segmentCount } = req.body;
+      
+      if (!title) {
+        return res.status(400).json({ success: false, error: "缺少視頻主題" });
+      }
+      
+      const result = await generateOutline({
+        title,
+        language: language || "cantonese",
+        duration: parseInt(duration) || 3,
+        segmentCount: parseInt(segmentCount) || 10,
+      });
+      
+      res.json({ 
+        success: true, 
+        outline: result.outline,
+        apiProvider: result.apiProvider,
+        apiProviderName: result.apiProviderName,
+      });
+    } catch (error) {
+      console.error("生成大綱失敗:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : "生成失敗" 
+      });
+    }
+  });
+  
+  // 生成片段內容 API
   app.post("/api/generate-segments", async (req, res) => {
     try {
       const { generateSegments } = await import("../segmentGenerationService");
@@ -45,14 +79,19 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "缺少必要參數" });
       }
       
-      const segments = await generateSegments({
+      const result = await generateSegments({
         title,
         outline,
         language: language || "cantonese",
         segmentCount: parseInt(segmentCount) || 10,
       });
       
-      res.json({ success: true, segments });
+      res.json({ 
+        success: true, 
+        segments: result.segments,
+        apiProvider: result.apiProvider,
+        apiProviderName: result.apiProviderName,
+      });
     } catch (error) {
       console.error("生成片段失敗:", error);
       res.status(500).json({ 

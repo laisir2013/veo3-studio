@@ -185,6 +185,9 @@ export default function WorkflowPage() {
   const [seoResult, setSeoResult] = useState<SeoResult | null>(null);
   const [isGeneratingSeo, setIsGeneratingSeo] = useState(false);
 
+  // API 來源提示
+  const [apiProviderInfo, setApiProviderInfo] = useState<{ provider: string; name: string } | null>(null);
+
   // 獲取配音員
   const { data: voiceData } = trpc.voice.getAll.useQuery();
   const allVoiceActors = (voiceData?.voiceActors || []) as VoiceActor[];
@@ -302,7 +305,21 @@ export default function WorkflowPage() {
       const data = await response.json();
       if (data.success && data.outline) {
         setStoryOutline(data.outline);
-        toast.success("故事大綱生成成功！");
+        
+        // 顯示 API 來源信息
+        if (data.apiProvider) {
+          setApiProviderInfo({ provider: data.apiProvider, name: data.apiProviderName || data.apiProvider });
+          if (data.apiProvider === "forge") {
+            toast.success("故事大綱生成成功！（使用 Manus AI 後備 API）", {
+              description: "您的 API 可能已用完或不可用，系統自動切換到 Manus AI",
+              duration: 5000,
+            });
+          } else {
+            toast.success(`故事大綱生成成功！（${data.apiProviderName || data.apiProvider}）`);
+          }
+        } else {
+          toast.success("故事大綱生成成功！");
+        }
       } else {
         setStoryOutline(generateLocalOutline(videoTitle, selectedDuration));
         toast.success("故事大綱生成成功！");
@@ -354,7 +371,21 @@ export default function WorkflowPage() {
           narration: seg.narration || "",
           status: "pending" as const,
         })));
-        toast.success("片段內容生成成功！");
+        
+        // 顯示 API 來源信息
+        if (data.apiProvider) {
+          setApiProviderInfo({ provider: data.apiProvider, name: data.apiProviderName || data.apiProvider });
+          if (data.apiProvider === "forge") {
+            toast.success("片段內容生成成功！（使用 Manus AI 後備 API）", {
+              description: "您的 API 可能已用完或不可用，系統自動切換到 Manus AI",
+              duration: 5000,
+            });
+          } else {
+            toast.success(`片段內容生成成功！（${data.apiProviderName || data.apiProvider}）`);
+          }
+        } else {
+          toast.success("片段內容生成成功！");
+        }
       } else {
         console.error("API 返回空數據:", data);
         toast.error(data.error || "生成失敗，請稍後重試");

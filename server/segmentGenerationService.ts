@@ -12,7 +12,13 @@ export interface GenerateSegmentsParams {
   segmentCount: number;
 }
 
-export async function generateSegments(params: GenerateSegmentsParams): Promise<GeneratedSegment[]> {
+export interface GenerateSegmentsResult {
+  segments: GeneratedSegment[];
+  apiProvider?: string;
+  apiProviderName?: string;
+}
+
+export async function generateSegments(params: GenerateSegmentsParams): Promise<GenerateSegmentsResult> {
   const { title, outline, language, segmentCount } = params;
 
   // 根據語言設置提示詞
@@ -89,7 +95,11 @@ ${outline}
       });
     }
 
-    return segments.slice(0, segmentCount);
+    return {
+      segments: segments.slice(0, segmentCount),
+      apiProvider: result.apiProvider,
+      apiProviderName: result.apiProviderName,
+    };
   } catch (error) {
     console.error("生成片段內容失敗:", error);
     throw error;
