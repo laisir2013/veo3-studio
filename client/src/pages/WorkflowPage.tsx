@@ -58,6 +58,7 @@ import { type Language, LANGUAGES } from "@/components/LanguageSelector";
 import { SeoPanel } from "@/components/SeoPanel";
 import type { SeoResult } from "@/components/SeoPanel";
 import { toast } from "sonner";
+import { getSessionId, setSessionId } from "@/hooks/useHistory";
 
 // 速度模式預設配置
 const SPEED_MODE_PRESETS = {
@@ -187,6 +188,26 @@ export default function WorkflowPage() {
 
   // API 來源提示
   const [apiProviderInfo, setApiProviderInfo] = useState<{ provider: string; name: string } | null>(null);
+
+  // 訪客 sessionId（用於歷史記錄）
+  const [sessionId, setLocalSessionId] = useState<string | null>(null);
+  const generateSessionMutation = trpc.history.generateSessionId.useMutation();
+
+  // 初始化 sessionId
+  useEffect(() => {
+    const existingSessionId = getSessionId();
+    if (existingSessionId) {
+      setLocalSessionId(existingSessionId);
+    } else {
+      // 生成新的會話 ID
+      generateSessionMutation.mutate(undefined, {
+        onSuccess: (data) => {
+          setSessionId(data.sessionId);
+          setLocalSessionId(data.sessionId);
+        },
+      });
+    }
+  }, []);
 
   // 獲取配音員
   const { data: voiceData } = trpc.voice.getAll.useQuery();
@@ -486,6 +507,7 @@ export default function WorkflowPage() {
         language: apiLanguage as "cantonese" | "mandarin" | "english",
         voiceActorId: selectedVoiceActor,
         speedMode: selectedSpeedMode,
+        sessionId: sessionId || undefined, // 訪客模式使用 sessionId 保存歷史記錄
       });
 
       if (result.taskId) {

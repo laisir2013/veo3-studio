@@ -133,14 +133,24 @@ export async function getHistoryRecords(options: {
 
   const { userId, sessionId, taskType, status, limit = 20, offset = 0 } = options;
 
+  // 必須有 userId 或 sessionId 才能查詢，避免返回所有記錄
+  if (!userId && !sessionId) {
+    console.warn("[History] 查詢歷史記錄需要 userId 或 sessionId");
+    return [];
+  }
+
   try {
+    // 構建用戶/會話過濾條件
+    const userOrSessionFilter = userId 
+      ? eq(generationHistory.userId, userId)
+      : eq(generationHistory.sessionId, sessionId!);
+
     let query = db.select()
       .from(generationHistory)
       .where(
         and(
           eq(generationHistory.isDeleted, 0),
-          userId ? eq(generationHistory.userId, userId) : undefined,
-          sessionId ? eq(generationHistory.sessionId, sessionId) : undefined,
+          userOrSessionFilter,
           taskType ? eq(generationHistory.taskType, taskType) : undefined,
           status ? eq(generationHistory.status, status as any) : undefined
         )

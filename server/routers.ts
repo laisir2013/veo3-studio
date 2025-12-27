@@ -640,10 +640,14 @@ export const appRouter = router({
         subtitleFontColor: z.string().default("white"), // 字幕顏色
         subtitleBoxStyle: z.string().default("shadow"), // 字幕框樣式
         subtitlePosition: z.string().default("bottom-center"), // 字幕位置
+        // 訪客 sessionId（用於歷史記錄）
+        sessionId: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         // 未登入時使用默認用戶 ID 0
         const userId = ctx.user?.id ?? 0;
+        // 訪客模式下使用 sessionId
+        const sessionId = !ctx.user ? input.sessionId : undefined;
         const task = createLongVideoTask(
           userId as number,
           input.durationMinutes,
@@ -677,7 +681,8 @@ export const appRouter = router({
 
         // 創建歷史記錄（數據庫持久化）
         await createHistoryRecord({
-          userId: userId as number,
+          userId: userId ? userId as number : undefined,
+          sessionId: sessionId, // 訪客模式使用 sessionId
           taskId: task.id,
           taskType: "video",
           title: input.story.substring(0, 50) + (input.story.length > 50 ? "..." : ""),

@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { getSessionId, setSessionId } from "@/hooks/useHistory";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -44,12 +46,43 @@ interface HistoryTask {
 
 export default function History() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const [selectedTask, setSelectedTask] = useState<HistoryTask | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
+  
+  // 訪客 sessionId
+  const [sessionId, setLocalSessionId] = useState<string | null>(null);
+  const generateSessionMutation = trpc.history.generateSessionId.useMutation();
+
+  // 初始化 sessionId
+  useEffect(() => {
+    if (!user) {
+      const existingSessionId = getSessionId();
+      if (existingSessionId) {
+        setLocalSessionId(existingSessionId);
+      } else {
+        // 生成新的會話 ID
+        generateSessionMutation.mutate(undefined, {
+          onSuccess: (data) => {
+            setSessionId(data.sessionId);
+            setLocalSessionId(data.sessionId);
+          },
+        });
+      }
+    }
+  }, [user]);
 
   // 獲取歷史任務列表（使用數據庫持久化）
+  // 登入用戶使用 userId，訪客使用 sessionId
   const { data: historyData, isLoading, refetch } = trpc.history.list.useQuery(
-    { limit: 50, offset: 0 }
+    { 
+      limit: 50, 
+      offset: 0,
+      sessionId: !user ? sessionId || undefined : undefined,
+    },
+    {
+      enabled: !!user || !!sessionId, // 登入用戶或有 sessionId 時才查詢
+    }
   );
 
   // 獲取配音員列表
