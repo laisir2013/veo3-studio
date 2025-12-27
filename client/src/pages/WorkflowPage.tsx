@@ -121,7 +121,7 @@ interface VoiceActor {
   language: string;
   gender: "male" | "female";
   ageGroup?: string;
-  style?: string;
+  style?: string | string[];  // 可以是字符串或數組
   sampleUrl?: string;
   type?: string;
 }
@@ -191,10 +191,19 @@ export default function WorkflowPage() {
   
   // 根據語言和篩選條件過濾配音員
   const filteredVoiceActors = allVoiceActors.filter((actor) => {
-    if (actor.language !== selectedLanguage) return false;
+    // 克隆聲音不需要過濾語言
+    if (selectedLanguage === "clone") {
+      if (actor.language !== "clone") return false;
+    } else {
+      if (actor.language !== selectedLanguage) return false;
+    }
     if (voiceGenderFilter && actor.gender !== voiceGenderFilter) return false;
     if (voiceAgeFilter && voiceAgeFilter !== "all" && actor.ageGroup !== voiceAgeFilter) return false;
-    if (voiceStyleFilter && voiceStyleFilter !== "all" && actor.style !== voiceStyleFilter) return false;
+    // style 是數組，使用 includes 檢查
+    if (voiceStyleFilter && voiceStyleFilter !== "all") {
+      const actorStyles = Array.isArray(actor.style) ? actor.style : [actor.style];
+      if (!actorStyles.includes(voiceStyleFilter)) return false;
+    }
     return true;
   });
 
