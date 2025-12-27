@@ -356,12 +356,12 @@ export default function WorkflowPage() {
         })));
         toast.success("片段內容生成成功！");
       } else {
-        generateLocalSegments();
-        toast.success("片段內容生成成功！");
+        console.error("API 返回空數據:", data);
+        toast.error(data.error || "生成失敗，請稍後重試");
       }
     } catch (error) {
-      generateLocalSegments();
-      toast.success("片段內容生成成功！");
+      console.error("生成片段失敗:", error);
+      toast.error("生成失敗，請稍後重試");
     }
 
     setIsGeneratingSegments(false);

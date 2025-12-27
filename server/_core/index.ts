@@ -34,6 +34,34 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Custom API routes
+  app.post("/api/generate-segments", async (req, res) => {
+    try {
+      const { generateSegments } = await import("../segmentGenerationService");
+      const { title, outline, language, segmentCount } = req.body;
+      
+      if (!title || !outline || !segmentCount) {
+        return res.status(400).json({ success: false, error: "缺少必要參數" });
+      }
+      
+      const segments = await generateSegments({
+        title,
+        outline,
+        language: language || "cantonese",
+        segmentCount: parseInt(segmentCount) || 10,
+      });
+      
+      res.json({ success: true, segments });
+    } catch (error) {
+      console.error("生成片段失敗:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : "生成失敗" 
+      });
+    }
+  });
+  
   // tRPC API
   app.use(
     "/api/trpc",
