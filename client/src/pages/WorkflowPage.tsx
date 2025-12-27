@@ -639,12 +639,26 @@ export default function WorkflowPage() {
 
   // 步驟14：合併視頻
   const handleMergeVideo = async () => {
+    if (!taskId) {
+      toast.error("任務 ID 丟失，請從頭開始工作流程");
+      setIsMerging(false);
+      setIsProcessing(false);
+      return;
+    }
+
+    const parsedTaskId = parseInt(taskId);
+    if (isNaN(parsedTaskId)) {
+      toast.error("無效的任務 ID，請從頭開始工作流程");
+      setIsMerging(false);
+      setIsProcessing(false);
+      return;
+    }
     setIsMerging(true);
     setIsProcessing(true);
 
     try {
       const result = await mergeVideo.mutateAsync({
-        taskId: parseInt(taskId!), // 將字符串轉換為數字
+        taskId: parsedTaskId,
         narrationVolume,
         bgmVolume,
         videoVolume,
