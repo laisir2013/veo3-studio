@@ -752,7 +752,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
 
               <div className="space-y-2">
                 <Label>影片時長</Label>
-                <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
                   {PRESET_DURATIONS.map((minutes) => (
                     <div
                       key={minutes}
@@ -763,8 +763,8 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       }`}
                       onClick={() => setSelectedDuration(minutes)}
                     >
-                      <div className="text-lg font-bold text-white">{minutes}</div>
-                      <div className="text-xs text-zinc-400">分鐘</div>
+                      <div className="text-base sm:text-lg font-bold text-white">{minutes}</div>
+                      <div className="text-[10px] sm:text-xs text-zinc-400">分鐘</div>
                     </div>
                   ))}
                 </div>
@@ -799,29 +799,29 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                 {(Object.entries(LANGUAGES) as [Language, typeof LANGUAGES.cantonese][]).map(([key, lang]) => {
                   const isSelected = selectedLanguage === key;
                   return (
                     <div
                       key={key}
-                      className={`cursor-pointer rounded-lg p-4 transition-all ${
+                      className={`cursor-pointer rounded-lg p-3 sm:p-4 transition-all relative ${
                         isSelected
                           ? "bg-purple-500/20 border-2 border-purple-500"
                           : "bg-zinc-800/50 border border-zinc-700 hover:border-purple-500/50"
                       }`}
                       onClick={() => setSelectedLanguage(key)}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{lang.flag}</span>
-                        <div>
-                          <div className="font-medium">{lang.name}</div>
-                          <div className="text-xs text-zinc-400">{lang.description}</div>
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <span className="text-xl sm:text-2xl">{lang.flag}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-sm sm:text-base">{lang.name}</div>
+                          <div className="text-[10px] sm:text-xs text-zinc-400 truncate">{lang.description}</div>
                         </div>
+                        {isSelected && (
+                          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500 flex-shrink-0" />
+                        )}
                       </div>
-                      {isSelected && (
-                        <CheckCircle2 className="w-5 h-5 text-purple-500 absolute top-2 right-2" />
-                      )}
                     </div>
                   );
                 })}
@@ -852,8 +852,8 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </p>
               </div>
 
-              {/* 篩選條件 */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* 篩選條件 - 響應式設計 */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs flex items-center gap-1">
                     <Filter className="w-3 h-3" />
@@ -864,7 +864,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       variant={voiceGenderFilter === "male" ? "default" : "outline"}
                       size="sm"
                       onClick={() => setVoiceGenderFilter(voiceGenderFilter === "male" ? "" : "male")}
-                      className="flex-1"
+                      className="flex-1 text-xs sm:text-sm"
                     >
                       男性
                     </Button>
@@ -872,7 +872,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       variant={voiceGenderFilter === "female" ? "default" : "outline"}
                       size="sm"
                       onClick={() => setVoiceGenderFilter(voiceGenderFilter === "female" ? "" : "female")}
-                      className="flex-1"
+                      className="flex-1 text-xs sm:text-sm"
                     >
                       女性
                     </Button>
@@ -882,7 +882,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 <div className="space-y-1">
                   <Label className="text-xs">年齡</Label>
                   <Select value={voiceAgeFilter} onValueChange={setVoiceAgeFilter}>
-                    <SelectTrigger className="h-8">
+                    <SelectTrigger className="h-8 text-xs sm:text-sm">
                       <SelectValue placeholder="全部" />
                     </SelectTrigger>
                     <SelectContent>
@@ -898,7 +898,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 <div className="space-y-1">
                   <Label className="text-xs">語氣</Label>
                   <Select value={voiceStyleFilter} onValueChange={setVoiceStyleFilter}>
-                    <SelectTrigger className="h-8">
+                    <SelectTrigger className="h-8 text-xs sm:text-sm">
                       <SelectValue placeholder="全部" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1249,7 +1249,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 <Progress value={generationProgress} className="h-3" />
               </div>
 
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5 sm:gap-2">
                 {segments.map((seg) => (
                   <div
                     key={seg.id}
@@ -1267,14 +1267,14 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       seg.videoUrl ? (
                         <video src={seg.videoUrl} className="w-full h-full object-cover rounded-lg" muted />
                       ) : (
-                        <CheckCircle2 className="w-6 h-6 text-green-500" />
+                        <CheckCircle2 className="w-4 h-4 sm:w-6 sm:h-6 text-green-500" />
                       )
                     ) : seg.status === "generating" ? (
-                      <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                      <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 text-blue-500 animate-spin" />
                     ) : seg.status === "failed" ? (
-                      <XCircle className="w-6 h-6 text-red-500" />
+                      <XCircle className="w-4 h-4 sm:w-6 sm:h-6 text-red-500" />
                     ) : (
-                      <span className="text-xs text-zinc-500">#{seg.id}</span>
+                      <span className="text-[10px] sm:text-xs text-zinc-500">#{seg.id}</span>
                     )}
                   </div>
                 ))}
@@ -1459,9 +1459,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
-              <div className="p-4 bg-zinc-800/50 rounded-lg">
-                <h4 className="font-medium mb-2">合併設定</h4>
-                <div className="grid grid-cols-3 gap-4 text-sm">
+              <div className="p-3 sm:p-4 bg-zinc-800/50 rounded-lg">
+                <h4 className="font-medium mb-2 text-sm sm:text-base">合併設定</h4>
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs sm:text-sm">
                   <div>
                     <span className="text-zinc-400">旁白音量</span>
                     <p className="font-medium">{narrationVolume}%</p>
@@ -1484,23 +1484,23 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     className="w-full aspect-video rounded-lg"
                     controls
                   />
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"
-                      className="flex-1"
+                      className="flex-1 text-xs sm:text-sm"
                       onClick={() => window.open(mergedVideoUrl, '_blank')}
                     >
-                      <Download className="w-4 h-4 mr-2" />
+                      <Download className="w-4 h-4 mr-1 sm:mr-2" />
                       下載視頻
                     </Button>
                     <Button
-                      className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500"
+                      className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-xs sm:text-sm"
                       onClick={() => {
                         setStepStatuses(prev => ({ ...prev, 14: "completed" }));
                         setCurrentStep(15);
                       }}
                     >
-                      <ChevronRight className="w-4 h-4 mr-2" />
+                      <ChevronRight className="w-4 h-4 mr-1 sm:mr-2" />
                       下一步：SEO 優化
                     </Button>
                   </div>
@@ -1594,63 +1594,63 @@ Total: ${segmentCount} segments of 8 seconds each`;
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-background/95">
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-b from-background to-background/95 overflow-x-hidden">
+      {/* Header - 響應式設計 */}
       <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="container px-3 sm:px-6 flex h-14 sm:h-16 items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                <Film className="w-6 h-6 text-white" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                <Film className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent truncate">
                   VEO3 Studio
                 </h1>
-                <p className="text-xs text-muted-foreground">15步工作流程</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">15步工作流程</p>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {user ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">{user.name}</span>
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                  <span className="text-xs font-medium text-white">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">{user.name}</span>
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[10px] sm:text-xs font-medium text-white">
                     {user.name?.charAt(0).toUpperCase()}
                   </span>
                 </div>
               </div>
             ) : isGuestMode() ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-muted-foreground">訪客模式</span>
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-500 to-gray-600 flex items-center justify-center">
-                  <span className="text-xs font-medium text-white">G</span>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-xs sm:text-sm text-muted-foreground">訪客模式</span>
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-gray-500 to-gray-600 flex items-center justify-center flex-shrink-0">
+                  <span className="text-[10px] sm:text-xs font-medium text-white">G</span>
                 </div>
               </div>
             ) : (
               <Button 
                 onClick={() => window.location.href = getLoginUrl()}
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90"
+                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-xs sm:text-sm px-3 sm:px-4 h-8 sm:h-10"
               >
-                登入開始創作
+                登入
               </Button>
             )}
           </div>
         </div>
       </header>
 
-      <main className="container py-6">
-        <div className="grid lg:grid-cols-4 gap-6">
-          {/* 左側：步驟導航 */}
-          <div className="lg:col-span-1">
-            <Card className="sticky top-24">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">工作流程</CardTitle>
-                <CardDescription>完成所有步驟以創建視頻</CardDescription>
+      <main className="container px-3 sm:px-6 py-4 sm:py-6">
+        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 sm:gap-6">
+          {/* 左側：步驟導航 - 手機上可折疊 */}
+          <div className="lg:col-span-1 order-2 lg:order-1">
+            <Card className="lg:sticky lg:top-24">
+              <CardHeader className="pb-2 sm:pb-3 px-3 sm:px-6">
+                <CardTitle className="text-base sm:text-lg">工作流程</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">完成所有步驟以創建視頻</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-2 sm:px-6">
                 <VerticalStepList
                   currentStep={currentStep}
                   stepStatuses={stepStatuses}
@@ -1661,10 +1661,10 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </div>
 
           {/* 右側：步驟內容 */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-4 sm:space-y-6 order-1 lg:order-2">
             {/* 頂部進度導航 */}
             <Card className="glass">
-              <CardContent className="py-4">
+              <CardContent className="py-3 sm:py-4 px-3 sm:px-6">
                 <WorkflowSteps
                   currentStep={currentStep}
                   stepStatuses={stepStatuses}

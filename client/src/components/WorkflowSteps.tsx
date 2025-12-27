@@ -23,7 +23,10 @@ import {
   Tags,
   Edit,
   Eye,
-  AlertCircle
+  AlertCircle,
+  Globe,
+  Users,
+  Menu
 } from "lucide-react";
 
 // 15步工作流程定義（包含語言選定和配音員篩選）
@@ -39,14 +42,14 @@ export const WORKFLOW_STEPS = [
     id: 2,
     title: "選擇旁白語言",
     description: "選擇旁白語言（粵語、普通話、英語）",
-    icon: Mic,
+    icon: Globe,
     color: "from-purple-500 to-pink-500",
   },
   {
     id: 3,
     title: "篩選配音員",
     description: "根據性別、年齡、語氣篩選配音員",
-    icon: Mic,
+    icon: Users,
     color: "from-pink-500 to-rose-500",
   },
   {
@@ -168,27 +171,28 @@ export function WorkflowSteps({
           <span className="text-sm font-medium text-white">
             步驟 {currentStep} / {WORKFLOW_STEPS.length}
           </span>
-          <span className="text-sm text-zinc-400">
+          <span className="text-sm text-zinc-400 truncate max-w-[150px] sm:max-w-none">
             {WORKFLOW_STEPS[currentStep - 1]?.title}
           </span>
         </div>
         <Progress value={progress} className="h-2" />
       </div>
 
-      {/* 步驟導航 */}
-      <div className="flex items-center justify-between">
+      {/* 步驟導航 - 響應式設計 */}
+      <div className="flex items-center justify-between gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={onPrev}
           disabled={!canGoPrev || currentStep === 1 || isProcessing}
-          className="gap-2"
+          className="gap-1 sm:gap-2 px-2 sm:px-3 flex-shrink-0"
         >
           <ChevronLeft className="w-4 h-4" />
-          上一步
+          <span className="hidden sm:inline">上一步</span>
         </Button>
 
-        <div className="flex items-center gap-1">
+        {/* 步驟指示器 - 手機上隱藏，只顯示當前步驟 */}
+        <div className="hidden md:flex items-center gap-1 overflow-x-auto scrollbar-hide">
           {WORKFLOW_STEPS.map((step) => {
             const status = stepStatuses[step.id] || "pending";
             const isCurrent = step.id === currentStep;
@@ -199,13 +203,13 @@ export function WorkflowSteps({
                 key={step.id}
                 onClick={() => onStepClick?.(step.id)}
                 disabled={isProcessing}
-                className={`relative group transition-all duration-200 ${
+                className={`relative group transition-all duration-200 flex-shrink-0 ${
                   isCurrent ? "scale-110" : "hover:scale-105"
                 }`}
                 title={`${step.id}. ${step.title}`}
               >
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-7 h-7 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all ${
                     status === "completed"
                       ? "bg-green-500 text-white"
                       : status === "error"
@@ -216,11 +220,11 @@ export function WorkflowSteps({
                   }`}
                 >
                   {status === "completed" ? (
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-3 h-3 lg:w-4 lg:h-4" />
                   ) : status === "error" ? (
-                    <AlertCircle className="w-4 h-4" />
+                    <AlertCircle className="w-3 h-3 lg:w-4 lg:h-4" />
                   ) : isCurrent && isProcessing ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-3 h-3 lg:w-4 lg:h-4 animate-spin" />
                   ) : (
                     <span className="text-xs font-bold">{step.id}</span>
                   )}
@@ -235,14 +239,28 @@ export function WorkflowSteps({
           })}
         </div>
 
+        {/* 手機上顯示當前步驟指示器 */}
+        <div className="flex md:hidden items-center gap-2 flex-1 justify-center">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br ${WORKFLOW_STEPS[currentStep - 1]?.color} text-white ring-2 ring-white/30`}>
+            {isProcessing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <span className="text-xs font-bold">{currentStep}</span>
+            )}
+          </div>
+          <span className="text-sm font-medium text-white truncate max-w-[100px]">
+            {WORKFLOW_STEPS[currentStep - 1]?.title}
+          </span>
+        </div>
+
         <Button
           variant="outline"
           size="sm"
           onClick={onNext}
           disabled={!canGoNext || currentStep === WORKFLOW_STEPS.length || isProcessing}
-          className="gap-2"
+          className="gap-1 sm:gap-2 px-2 sm:px-3 flex-shrink-0"
         >
-          下一步
+          <span className="hidden sm:inline">下一步</span>
           <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
@@ -250,7 +268,7 @@ export function WorkflowSteps({
   );
 }
 
-// 步驟卡片組件
+// 步驟卡片組件 - 響應式設計
 interface StepCardProps {
   step: typeof WORKFLOW_STEPS[0];
   status: StepStatus;
@@ -271,24 +289,24 @@ export function StepCard({ step, status, isCurrent, children }: StepCardProps) {
           : "bg-zinc-900/50"
       }`}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-3">
+      <CardHeader className="pb-3 px-3 sm:px-6">
+        <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-col sm:flex-row">
           <div
-            className={`w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br ${step.color}`}
+            className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center bg-gradient-to-br ${step.color} flex-shrink-0`}
           >
-            <Icon className="w-5 h-5 text-white" />
+            <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
-          <div className="flex-1">
-            <CardTitle className="text-lg flex items-center gap-2">
-              第 {step.id} 步：{step.title}
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-base sm:text-lg flex items-center gap-2 flex-wrap">
+              <span className="truncate">第 {step.id} 步：{step.title}</span>
               {status === "completed" && (
-                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-green-500 flex-shrink-0" />
               )}
               {status === "error" && (
-                <AlertCircle className="w-5 h-5 text-red-500" />
+                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-500 flex-shrink-0" />
               )}
             </CardTitle>
-            <CardDescription>{step.description}</CardDescription>
+            <CardDescription className="text-xs sm:text-sm">{step.description}</CardDescription>
           </div>
           <Badge
             variant={
@@ -300,6 +318,7 @@ export function StepCard({ step, status, isCurrent, children }: StepCardProps) {
                 ? "secondary"
                 : "outline"
             }
+            className="flex-shrink-0 text-xs"
           >
             {status === "completed"
               ? "已完成"
@@ -311,12 +330,12 @@ export function StepCard({ step, status, isCurrent, children }: StepCardProps) {
           </Badge>
         </div>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="px-3 sm:px-6">{children}</CardContent>
     </Card>
   );
 }
 
-// 垂直步驟列表組件（用於側邊欄）
+// 垂直步驟列表組件（用於側邊欄）- 響應式設計
 interface VerticalStepListProps {
   currentStep: number;
   stepStatuses: Record<number, StepStatus>;
@@ -329,7 +348,7 @@ export function VerticalStepList({
   onStepClick,
 }: VerticalStepListProps) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1 max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
       {WORKFLOW_STEPS.map((step, index) => {
         const status = stepStatuses[step.id] || "pending";
         const isCurrent = step.id === currentStep;
@@ -339,7 +358,7 @@ export function VerticalStepList({
           <button
             key={step.id}
             onClick={() => onStepClick?.(step.id)}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left ${
+            className={`w-full flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-all text-left ${
               isCurrent
                 ? "bg-primary/20 text-white"
                 : status === "completed"
@@ -348,7 +367,7 @@ export function VerticalStepList({
             }`}
           >
             <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
                 status === "completed"
                   ? "bg-green-500 text-white"
                   : status === "error"
@@ -359,18 +378,18 @@ export function VerticalStepList({
               }`}
             >
               {status === "completed" ? (
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
               ) : status === "error" ? (
-                <AlertCircle className="w-4 h-4" />
+                <AlertCircle className="w-3 h-3 sm:w-4 sm:h-4" />
               ) : (
-                <span className="text-xs font-bold">{step.id}</span>
+                <span className="text-[10px] sm:text-xs font-bold">{step.id}</span>
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{step.title}</div>
+              <div className="text-xs sm:text-sm font-medium truncate">{step.title}</div>
             </div>
             {isCurrent && (
-              <ChevronRight className="w-4 h-4 text-primary flex-shrink-0" />
+              <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 text-primary flex-shrink-0" />
             )}
           </button>
         );
