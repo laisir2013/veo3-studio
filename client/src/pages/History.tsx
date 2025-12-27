@@ -60,12 +60,18 @@ export default function History() {
       const existingSessionId = getSessionId();
       if (existingSessionId) {
         setLocalSessionId(existingSessionId);
+        console.log('[History] Using existing sessionId:', existingSessionId);
       } else {
         // 生成新的會話 ID
+        console.log('[History] Generating new sessionId...');
         generateSessionMutation.mutate(undefined, {
           onSuccess: (data) => {
+            console.log('[History] Generated sessionId:', data.sessionId);
             setSessionId(data.sessionId);
             setLocalSessionId(data.sessionId);
+          },
+          onError: (error) => {
+            console.error('[History] Failed to generate sessionId:', error);
           },
         });
       }
