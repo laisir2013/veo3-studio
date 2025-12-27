@@ -198,12 +198,18 @@ export default function WorkflowPage() {
     const existingSessionId = getSessionId();
     if (existingSessionId) {
       setLocalSessionId(existingSessionId);
+      console.log('[WorkflowPage] Using existing sessionId:', existingSessionId);
     } else {
       // 生成新的會話 ID
+      console.log('[WorkflowPage] Generating new sessionId...');
       generateSessionMutation.mutate(undefined, {
         onSuccess: (data) => {
+          console.log('[WorkflowPage] Generated sessionId:', data.sessionId);
           setSessionId(data.sessionId);
           setLocalSessionId(data.sessionId);
+        },
+        onError: (error) => {
+          console.error('[WorkflowPage] Failed to generate sessionId:', error);
         },
       });
     }
