@@ -211,13 +211,6 @@ const normalizeToolChoice = (
 
 // 獲取 API 配置
 const getApiConfig = () => {
-  // 調試日誌
-  console.log('[LLM Config] Checking API keys:');
-  console.log('[LLM Config] - forgeApiKey:', ENV.forgeApiKey ? 'SET' : 'NOT SET');
-  console.log('[LLM Config] - vectorEngineApiKey:', ENV.vectorEngineApiKey ? 'SET' : 'NOT SET');
-  console.log('[LLM Config] - anthropicApiKey:', ENV.anthropicApiKey ? 'SET' : 'NOT SET');
-  console.log('[LLM Config] - openaiApiKey:', ENV.openaiApiKey ? 'SET' : 'NOT SET');
-  
   // 優先使用 Forge API（Manus 平台內部）
   if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
     return {
