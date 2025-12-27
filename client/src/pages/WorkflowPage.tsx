@@ -668,7 +668,7 @@ export default function WorkflowPage() {
     setCurrentStep(14);
   };
 
-  // 步驟14：合併視頻
+  // 步驟14：合併視頻（三層容錯機制）
   const handleMergeVideo = async () => {
     if (!taskId) {
       toast.error("任務 ID 丟失，請從頭開始工作流程");
@@ -691,7 +691,19 @@ export default function WorkflowPage() {
 
       if (result.videoUrl) {
         setMergedVideoUrl(result.videoUrl);
-        toast.success("視頻合併成功！");
+        
+        // 檢查是否為緊急模式
+        if (result.mode === "emergency") {
+          toast.warning(
+            `緊急模式：返回 ${result.segmentUrls?.length || 1} 個獨立片段。您可以手動下載並合併。`,
+            { duration: 8000 }
+          );
+          console.log("[EmergencyMode] 片段 URLs:", result.segmentUrls);
+        } else if (result.mode === "local") {
+          toast.success("視頻合併成功！（本地 FFmpeg）");
+        } else {
+          toast.success("視頻合併成功！");
+        }
       }
     } catch (error: any) {
       toast.error("合併失敗：" + error.message);

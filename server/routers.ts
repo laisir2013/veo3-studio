@@ -824,6 +824,9 @@ export const appRouter = router({
             success: true,
             videoUrl: mergeResult.videoUrl,
             duration: mergeResult.duration,
+            mode: mergeResult.mode,
+            segmentUrls: mergeResult.segmentUrls,
+            message: mergeResult.message,
           };
         } catch (error: any) {
           console.error(`[LongVideo ${task.id}] 視頻合併失敗:`, error);
