@@ -107,6 +107,39 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     return { success: false, error: "沒有有效的視頻 URL" };
   }
 
+  // 🔍 GPT 建議：添加輸入檢查日誌，檢測是否有圖片混入
+  const inputSummary = validVideoUrls.map(url => {
+    const cleanUrl = url.split("?")[0];
+    const ext = cleanUrl.split(".").pop()?.toLowerCase() || "unknown";
+    return { url: url.substring(0, 60) + "...", ext };
+  });
+  console.log("[Merge] 輸入檢查:", JSON.stringify(inputSummary, null, 2));
+  
+  // 檢測圖片格式（jpg, jpeg, png, webp, gif）
+  const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+  const imageUrls = inputSummary.filter(item => imageExtensions.includes(item.ext));
+  const videoOnlyUrls = validVideoUrls.filter(url => {
+    const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "";
+    return !imageExtensions.includes(ext);
+  });
+  
+  if (imageUrls.length > 0) {
+    console.log(`[Merge] ⚠️ 警告：檢測到 ${imageUrls.length} 個圖片 URL 混入視頻合成！`);
+    console.log(`[Merge] 圖片 URLs:`, imageUrls);
+    
+    // 如果全部都是圖片，返回錯誤
+    if (videoOnlyUrls.length === 0) {
+      console.log(`[Merge] ❌ 錯誤：所有輸入都是圖片，無法進行視頻合成`);
+      return { 
+        success: false, 
+        error: "所有輸入都是圖片格式，無法進行視頻合成。請確保使用視頻模式生成片段。" 
+      };
+    }
+    
+    // 如果有混合，只使用視頻 URL（跳過圖片）
+    console.log(`[Merge] 📝 將跳過圖片，只合併 ${videoOnlyUrls.length} 個視頻片段`);
+  }
+
   // 如果只有一個視頻且不需要處理，直接返回
   if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none") {
     console.log(`[VideoMerge] 只有一個視頻，直接返回`);
@@ -637,4 +670,147 @@ export async function healthCheck(): Promise<{
     ffmpegAvailable,
     stats: getMergeStats(),
   };
+}
+
+
+/**
+ * 🖼️ GPT 建議：圖片轉視頻功能
+ * 將靜態圖片轉換為指定時長的視頻（用於圖片模式片段）
+ */
+export async function generateStillVideoFromImage(
+  imageUrl: string,
+  durationSec: number = 3
+): Promise<string> {
+  console.log(`[ImageToVideo] 開始將圖片轉換為 ${durationSec} 秒視頻: ${imageUrl.substring(0, 60)}...`);
+  
+  // 方法 1：嘗試使用雲端 API
+  try {
+    const apiKey = getNextApiKey();
+    const response = await fetch(`${VIDEO_API_BASE}/video/image-to-video`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        image_url: imageUrl,
+        duration: durationSec,
+        output_format: "mp4",
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.url || result.video_url) {
+        console.log(`[ImageToVideo] ✅ 雲端轉換成功`);
+        return result.url || result.video_url;
+      }
+    }
+    console.log(`[ImageToVideo] 雲端 API 不可用，嘗試本地 FFmpeg`);
+  } catch (error) {
+    console.log(`[ImageToVideo] 雲端 API 失敗:`, error);
+  }
+
+  // 方法 2：嘗試本地 FFmpeg
+  try {
+    const ffmpegAvailable = await checkFFmpegAvailable();
+    if (ffmpegAvailable) {
+      const result = await convertImageToVideoWithFFmpeg(imageUrl, durationSec);
+      if (result) {
+        console.log(`[ImageToVideo] ✅ 本地 FFmpeg 轉換成功`);
+        return result;
+      }
+    }
+  } catch (error) {
+    console.log(`[ImageToVideo] 本地 FFmpeg 失敗:`, error);
+  }
+
+  // 方法 3：返回原始圖片 URL（讓合併服務處理）
+  console.log(`[ImageToVideo] ⚠️ 無法轉換，返回原始圖片 URL`);
+  return imageUrl;
+}
+
+/**
+ * 使用 FFmpeg 將圖片轉換為視頻
+ */
+async function convertImageToVideoWithFFmpeg(
+  imageUrl: string,
+  durationSec: number
+): Promise<string | null> {
+  try {
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+    const fs = await import("fs");
+
+    const tempDir = `/tmp/img2video-${Date.now()}`;
+    const imagePath = `${tempDir}/input.jpg`;
+    const outputPath = `${tempDir}/output.mp4`;
+
+    // 創建臨時目錄
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // 下載圖片
+    await execAsync(`curl -L -o "${imagePath}" "${imageUrl}"`, { timeout: 30000 });
+
+    if (!fs.existsSync(imagePath)) {
+      console.log(`[ImageToVideo] 圖片下載失敗`);
+      return null;
+    }
+
+    // 使用 FFmpeg 將圖片轉換為視頻
+    // -loop 1: 循環圖片
+    // -t: 視頻時長
+    // -r: 幀率
+    // -pix_fmt yuv420p: 確保兼容性
+    const ffmpegCmd = `ffmpeg -y -loop 1 -i "${imagePath}" -c:v libx264 -t ${durationSec} -pix_fmt yuv420p -r 24 "${outputPath}"`;
+    
+    console.log(`[ImageToVideo] 執行 FFmpeg: ${ffmpegCmd}`);
+    await execAsync(ffmpegCmd, { timeout: 60000 });
+
+    if (!fs.existsSync(outputPath)) {
+      console.log(`[ImageToVideo] FFmpeg 輸出文件不存在`);
+      return null;
+    }
+
+    // 上傳到存儲
+    const { storagePut } = await import("./storage");
+    const fileBuffer = fs.readFileSync(outputPath);
+    const fileName = `img2video-${Date.now()}.mp4`;
+    const { url } = await storagePut(fileName, fileBuffer, "video/mp4");
+
+    // 清理臨時文件
+    try {
+      fs.unlinkSync(imagePath);
+      fs.unlinkSync(outputPath);
+      fs.rmdirSync(tempDir);
+    } catch {}
+
+    return url;
+  } catch (error) {
+    console.error(`[ImageToVideo] FFmpeg 轉換失敗:`, error);
+    return null;
+  }
+}
+
+/**
+ * 檢查 URL 是否為圖片格式
+ */
+export function isImageUrl(url: string): boolean {
+  const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+  const cleanUrl = url.split("?")[0];
+  const ext = cleanUrl.split(".").pop()?.toLowerCase() || "";
+  return imageExtensions.includes(ext);
+}
+
+/**
+ * 檢查 URL 是否為視頻格式
+ */
+export function isVideoUrl(url: string): boolean {
+  const videoExtensions = ["mp4", "webm", "mov", "avi", "mkv"];
+  const cleanUrl = url.split("?")[0];
+  const ext = cleanUrl.split(".").pop()?.toLowerCase() || "";
+  return videoExtensions.includes(ext);
 }

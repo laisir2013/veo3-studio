@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -192,6 +192,105 @@ export default function WorkflowPage() {
   // 訪客 sessionId（用於歷史記錄）
   const [sessionId, setLocalSessionId] = useState<string | null>(null);
   const generateSessionMutation = trpc.history.generateSessionId.useMutation();
+
+  // 💾 GPT 建議：LocalStorage 持久化 Key
+  const STORAGE_KEY = "veo3_workflow_state";
+
+  // 💾 保存狀態到 LocalStorage
+  const saveStateToStorage = useCallback(() => {
+    if (!taskId) return; // 只有有 taskId 時才保存
+    
+    const stateToSave = {
+      taskId,
+      currentStep,
+      segments,
+      videoTitle,
+      selectedDuration,
+      selectedLanguage,
+      selectedVoiceActor,
+      storyOutline,
+      narrationVolume,
+      bgmVolume,
+      videoVolume,
+      stepStatuses,
+      subtitles,
+      mergedVideoUrl,
+      savedAt: Date.now(),
+    };
+    
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+      console.log('[LocalStorage] 狀態已保存:', { taskId, currentStep, segmentsCount: segments.length });
+    } catch (error) {
+      console.error('[LocalStorage] 保存失敗:', error);
+    }
+  }, [taskId, currentStep, segments, videoTitle, selectedDuration, selectedLanguage, selectedVoiceActor, storyOutline, narrationVolume, bgmVolume, videoVolume, stepStatuses, subtitles, mergedVideoUrl]);
+
+  // 💾 從 LocalStorage 恢復狀態
+  const loadStateFromStorage = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return null;
+      
+      const state = JSON.parse(saved);
+      
+      // 檢查是否過期（24 小時）
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      if (Date.now() - state.savedAt > maxAge) {
+        console.log('[LocalStorage] 狀態已過期，清除');
+        localStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
+      
+      return state;
+    } catch (error) {
+      console.error('[LocalStorage] 讀取失敗:', error);
+      return null;
+    }
+  }, []);
+
+  // 💾 頁面加載時恢復狀態
+  useEffect(() => {
+    const savedState = loadStateFromStorage();
+    if (savedState && savedState.taskId) {
+      console.log('[LocalStorage] 恢復已保存的狀態:', {
+        taskId: savedState.taskId,
+        currentStep: savedState.currentStep,
+        segmentsCount: savedState.segments?.length,
+      });
+      
+      // 恢復所有狀態
+      setTaskId(savedState.taskId);
+      setCurrentStep(savedState.currentStep || 1);
+      setSegments(savedState.segments || []);
+      setVideoTitle(savedState.videoTitle || "");
+      setSelectedDuration(savedState.selectedDuration || 3);
+      setSelectedLanguage(savedState.selectedLanguage || "cantonese");
+      setSelectedVoiceActor(savedState.selectedVoiceActor || "");
+      setStoryOutline(savedState.storyOutline || "");
+      setNarrationVolume(savedState.narrationVolume ?? 80);
+      setBgmVolume(savedState.bgmVolume ?? 30);
+      setVideoVolume(savedState.videoVolume ?? 50);
+      setStepStatuses(savedState.stepStatuses || {});
+      setSubtitles(savedState.subtitles || []);
+      setMergedVideoUrl(savedState.mergedVideoUrl || null);
+      
+      toast.info("已恢復上次的工作進度", { duration: 3000 });
+    }
+  }, []);
+
+  // 💾 當關鍵狀態變化時自動保存
+  useEffect(() => {
+    if (taskId && segments.length > 0) {
+      saveStateToStorage();
+    }
+  }, [taskId, currentStep, segments, stepStatuses, saveStateToStorage]);
+
+  // 💾 清除已保存的狀態（用於開始新任務）
+  const clearSavedState = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    console.log('[LocalStorage] 狀態已清除');
+  }, []);
 
   // 初始化 sessionId
   useEffect(() => {
@@ -673,30 +772,47 @@ export default function WorkflowPage() {
 
   // 步驟14：合併視頻（三層容錯機制）
   const handleMergeVideo = async () => {
-    if (!taskId) {
-      toast.error("任務 ID 丟失，請從頭開始工作流程");
-      setIsMerging(false);
-      setIsProcessing(false);
+    // 🔍 GPT 建議：添加詳細的調試日誌
+    const completedSegments = segments.filter(seg => seg.status === "completed" && seg.videoUrl);
+    const completedVideoUrls = completedSegments.map(seg => seg.videoUrl!);
+    
+    console.log("[Merge Check] 合併前檢查:", {
+      taskId,
+      totalSegments: segments.length,
+      completedCount: completedSegments.length,
+      statuses: segments.map(s => ({ id: s.id, status: s.status, hasUrl: !!s.videoUrl })),
+      urls: completedVideoUrls.map(url => ({
+        url: url?.substring(0, 60) + "...",
+        ext: url?.split("?")[0].split(".").pop()?.toLowerCase(),
+      })),
+    });
+
+    // 檢查是否有可用的視頻
+    if (completedVideoUrls.length === 0) {
+      toast.error("未檢測到有效片段，請確保至少有一個片段生成成功");
+      console.error("[Merge Check] ❌ 沒有可用的視頻 URL");
+      // 不要跳回 Step 11，讓用戶自己決定
       return;
+    }
+
+    if (!taskId) {
+      // 如果沒有 taskId 但有視頻 URL，仍然嘗試合併
+      console.log("[Merge Check] ⚠️ taskId 丟失，但有視頻 URL，嘗試使用備用方案");
     }
 
     setIsMerging(true);
     setIsProcessing(true);
 
     try {
-      // longVideo.merge 使用字符串 taskId
-      // 同時傳遞 videoUrls 作為備用，當任務記錄丟失時使用
-      const completedVideoUrls = segments
-        .filter(seg => seg.status === "completed" && seg.videoUrl)
-        .map(seg => seg.videoUrl!);
-      
       const result = await mergeVideo.mutateAsync({
-        taskId: taskId, // 直接使用字符串 taskId
+        taskId: taskId || "unknown", // 即使沒有 taskId 也嘗試
         narrationVolume,
         bgmVolume,
         originalVolume: videoVolume,
         videoUrls: completedVideoUrls, // 傳遞片段 URL 作為備用
       });
+
+      console.log("[Merge Result]", result);
 
       if (result.videoUrl) {
         setMergedVideoUrl(result.videoUrl);
@@ -713,8 +829,13 @@ export default function WorkflowPage() {
         } else {
           toast.success("視頻合併成功！");
         }
+      } else if (result.error) {
+        // 🔧 GPT 建議：顯示具體錯誤信息
+        toast.error(`合併失敗：${result.error}`);
+        console.error("[Merge Error]", result.error);
       }
     } catch (error: any) {
+      console.error("[Merge Exception]", error);
       toast.error("合併失敗：" + error.message);
     }
 

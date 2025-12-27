@@ -1950,9 +1950,30 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                 task.videoModel as any
               );
             } else {
-              // 2b. 使用圖片作為視頻（後續合併時會處理圖片時長）
-              videoUrl = imageUrl;
-              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，時長: ${task.imageDuration || '3s'}`);
+              // 2b. 📷 GPT 建議：圖片模式需要先轉換為視頻
+              const imageDurationSec = Number(task.imageDuration ?? 3);
+              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，正在轉換為 ${imageDurationSec} 秒視頻...`);
+              
+              // 嘗試將圖片轉換為視頻
+              const { generateStillVideoFromImage, isImageUrl } = await import("./videoMergeService");
+              
+              if (isImageUrl(imageUrl)) {
+                // 嘗試轉換
+                const convertedVideoUrl = await generateStillVideoFromImage(imageUrl, imageDurationSec);
+                
+                // 檢查轉換結果是否為視頻
+                if (convertedVideoUrl && !isImageUrl(convertedVideoUrl)) {
+                  videoUrl = convertedVideoUrl;
+                  console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 圖片轉視頻成功: ${videoUrl.substring(0, 60)}...`);
+                } else {
+                  // 轉換失敗，使用原始圖片（合併時會跳過）
+                  videoUrl = imageUrl;
+                  console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 圖片轉視頻失敗，使用原始圖片`);
+                }
+              } else {
+                // 已經是視頻格式
+                videoUrl = imageUrl;
+              }
             }
             
             // 3. 生成語音旁白
