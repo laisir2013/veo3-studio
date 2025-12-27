@@ -7,6 +7,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { generateSegments } from "../segmentGenerationService";
 
 function serveStatic(app: express.Express) {
   const distPath = path.resolve(process.cwd(), "dist", "public");
@@ -19,7 +20,12 @@ function serveStatic(app: express.Express) {
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // BUT exclude API routes from this fallback
+  app.use("*", (req, res, next) => {
+    // Skip API routes - let them 404 properly if not found
+    if (req.originalUrl.startsWith("/api/")) {
+      return next();
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
@@ -34,6 +40,32 @@ async function startServer() {
   
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Custom API routes - MUST be before tRPC and static files
+  app.post("/api/generate-segments", async (req, res) => {
+    try {
+      const { title, outline, language, segmentCount } = req.body;
+      
+      if (!title || !outline || !segmentCount) {
+        return res.status(400).json({ success: false, error: "缺少必要參數" });
+      }
+      
+      const segments = await generateSegments({
+        title,
+        outline,
+        language: language || "cantonese",
+        segmentCount: parseInt(segmentCount) || 10,
+      });
+      
+      res.json({ success: true, segments });
+    } catch (error) {
+      console.error("生成片段失敗:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: error instanceof Error ? error.message : "生成失敗" 
+      });
+    }
+  });
   
   // tRPC API
   app.use(
