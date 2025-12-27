@@ -685,11 +685,17 @@ export default function WorkflowPage() {
 
     try {
       // longVideo.merge 使用字符串 taskId
+      // 同時傳遞 videoUrls 作為備用，當任務記錄丟失時使用
+      const completedVideoUrls = segments
+        .filter(seg => seg.status === "completed" && seg.videoUrl)
+        .map(seg => seg.videoUrl!);
+      
       const result = await mergeVideo.mutateAsync({
         taskId: taskId, // 直接使用字符串 taskId
         narrationVolume,
         bgmVolume,
         originalVolume: videoVolume,
+        videoUrls: completedVideoUrls, // 傳遞片段 URL 作為備用
       });
 
       if (result.videoUrl) {
