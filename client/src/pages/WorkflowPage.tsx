@@ -43,7 +43,9 @@ import {
   RefreshCw,
   Upload,
   Trash2,
-  Save
+  Save,
+  Globe,
+  Filter
 } from "lucide-react";
 import { 
   WorkflowSteps, 
@@ -112,11 +114,23 @@ interface SegmentInfo {
   subtitles?: Array<{ start: number; end: number; text: string }>;
 }
 
+// 配音員類型
+interface VoiceActor {
+  id: string;
+  name: string;
+  language: string;
+  gender: "male" | "female";
+  ageGroup?: string;
+  style?: string;
+  sampleUrl?: string;
+  type?: string;
+}
+
 export default function WorkflowPage() {
   const { user, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   
-  // 當前步驟
+  // 當前步驟（現在是15步）
   const [currentStep, setCurrentStep] = useState(1);
   const [stepStatuses, setStepStatuses] = useState<Record<number, StepStatus>>({});
   const [isProcessing, setIsProcessing] = useState(false);
@@ -125,48 +139,64 @@ export default function WorkflowPage() {
   const [videoTitle, setVideoTitle] = useState("");
   const [selectedDuration, setSelectedDuration] = useState(3);
 
-  // 步驟2：故事大綱
+  // 步驟2：語言選擇
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>("cantonese");
+
+  // 步驟3：配音員篩選
+  const [selectedVoiceActor, setSelectedVoiceActor] = useState("");
+  const [voiceGenderFilter, setVoiceGenderFilter] = useState<"male" | "female" | "">("");
+  const [voiceAgeFilter, setVoiceAgeFilter] = useState("");
+  const [voiceStyleFilter, setVoiceStyleFilter] = useState("");
+  const [playingActorId, setPlayingActorId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // 步驟4：故事大綱
   const [storyOutline, setStoryOutline] = useState("");
   const [isGeneratingOutline, setIsGeneratingOutline] = useState(false);
 
-  // 步驟3-4：片段描述和旁白
+  // 步驟5-6：片段描述和旁白
   const [segments, setSegments] = useState<SegmentInfo[]>([]);
   const [isGeneratingSegments, setIsGeneratingSegments] = useState(false);
 
-  // 步驟5：編輯狀態
+  // 步驟7：編輯狀態
   const [editingSegmentId, setEditingSegmentId] = useState<number | null>(null);
 
-  // 步驟6：生成設定
+  // 步驟8：生成設定
   const [selectedSpeedMode, setSelectedSpeedMode] = useState<"fast" | "quality">("fast");
-  const [selectedLanguage, setSelectedLanguage] = useState<Language>("cantonese");
-  const [selectedVoiceActor, setSelectedVoiceActor] = useState("");
 
-  // 步驟7-9：生成狀態
+  // 步驟9-11：生成狀態
   const [taskId, setTaskId] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState(0);
 
-  // 步驟10：字幕
+  // 步驟12：字幕
   const [subtitles, setSubtitles] = useState<Array<{ segmentId: number; items: Array<{ start: number; end: number; text: string }> }>>([]);
   const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
 
-  // 步驟11：音量
+  // 步驟13：音量
   const [narrationVolume, setNarrationVolume] = useState(80);
   const [bgmVolume, setBgmVolume] = useState(30);
   const [videoVolume, setVideoVolume] = useState(50);
 
-  // 步驟12：合併
+  // 步驟14：合併
   const [isMerging, setIsMerging] = useState(false);
   const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null);
 
-  // 步驟13：SEO
+  // 步驟15：SEO
   const [seoResult, setSeoResult] = useState<SeoResult | null>(null);
   const [isGeneratingSeo, setIsGeneratingSeo] = useState(false);
 
   // 獲取配音員
   const { data: voiceData } = trpc.voice.getAll.useQuery();
-  const filteredVoiceActors = (voiceData?.voiceActors || []).filter(
-    (actor: any) => actor.language === selectedLanguage
-  );
+  const allVoiceActors = (voiceData?.voiceActors || []) as VoiceActor[];
+  
+  // 根據語言和篩選條件過濾配音員
+  const filteredVoiceActors = allVoiceActors.filter((actor) => {
+    if (actor.language !== selectedLanguage) return false;
+    if (voiceGenderFilter && actor.gender !== voiceGenderFilter) return false;
+    if (voiceAgeFilter && actor.ageGroup !== voiceAgeFilter) return false;
+    if (voiceStyleFilter && actor.style !== voiceStyleFilter) return false;
+    return true;
+  });
 
   // tRPC mutations
   const generateOutlineMutation = trpc.video.generateOutline?.useMutation?.() || null;
@@ -200,7 +230,46 @@ export default function WorkflowPage() {
     setCurrentStep(2);
   };
 
-  // 步驟2：生成故事大綱
+  // 步驟2：選擇語言
+  const handleStep2Complete = () => {
+    setStepStatuses(prev => ({ ...prev, 2: "completed" }));
+    setCurrentStep(3);
+  };
+
+  // 步驟3：篩選配音員
+  const handlePlaySample = (actorId: string, sampleUrl?: string) => {
+    if (!sampleUrl) {
+      toast.error("沒有試聽音頻");
+      return;
+    }
+
+    if (playingActorId === actorId) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setPlayingActorId(null);
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const audio = new Audio(sampleUrl);
+      audio.onended = () => setPlayingActorId(null);
+      audio.play();
+      audioRef.current = audio;
+      setPlayingActorId(actorId);
+    }
+  };
+
+  const handleStep3Complete = () => {
+    if (!selectedVoiceActor) {
+      toast.error("請選擇配音員");
+      return;
+    }
+    setStepStatuses(prev => ({ ...prev, 3: "completed" }));
+    setCurrentStep(4);
+  };
+
+  // 步驟4：生成故事大綱
   const handleGenerateOutline = async () => {
     if (!videoTitle.trim()) {
       toast.error("請先輸入視頻主題");
@@ -210,7 +279,6 @@ export default function WorkflowPage() {
     setIsProcessing(true);
 
     try {
-      // 調用 API 生成大綱
       const response = await fetch('/api/generate-outline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -227,12 +295,10 @@ export default function WorkflowPage() {
         setStoryOutline(data.outline);
         toast.success("故事大綱生成成功！");
       } else {
-        // 本地生成備用
         setStoryOutline(generateLocalOutline(videoTitle, selectedDuration));
         toast.success("故事大綱生成成功！");
       }
     } catch (error) {
-      // 本地生成備用
       setStoryOutline(generateLocalOutline(videoTitle, selectedDuration));
       toast.success("故事大綱生成成功！");
     }
@@ -241,16 +307,16 @@ export default function WorkflowPage() {
     setIsProcessing(false);
   };
 
-  const handleStep2Complete = () => {
+  const handleStep4Complete = () => {
     if (!storyOutline.trim()) {
       toast.error("請先生成或輸入故事大綱");
       return;
     }
-    setStepStatuses(prev => ({ ...prev, 2: "completed" }));
-    setCurrentStep(3);
+    setStepStatuses(prev => ({ ...prev, 4: "completed" }));
+    setCurrentStep(5);
   };
 
-  // 步驟3-4：生成片段描述和旁白
+  // 步驟5-6：生成片段描述和旁白
   const handleGenerateSegments = async () => {
     if (!storyOutline.trim()) {
       toast.error("請先完成故事大綱");
@@ -281,19 +347,17 @@ export default function WorkflowPage() {
         })));
         toast.success("片段內容生成成功！");
       } else {
-        // 本地生成備用
         generateLocalSegments();
         toast.success("片段內容生成成功！");
       }
     } catch (error) {
-      // 本地生成備用
       generateLocalSegments();
       toast.success("片段內容生成成功！");
     }
 
     setIsGeneratingSegments(false);
     setIsProcessing(false);
-    setStepStatuses(prev => ({ ...prev, 3: "completed", 4: "completed" }));
+    setStepStatuses(prev => ({ ...prev, 5: "completed", 6: "completed" }));
   };
 
   const generateLocalSegments = () => {
@@ -312,17 +376,17 @@ export default function WorkflowPage() {
     setSegments(newSegments);
   };
 
-  const handleStep3_4Complete = () => {
+  const handleStep5_6Complete = () => {
     const hasContent = segments.some(s => s.description || s.narration);
     if (!hasContent) {
       toast.error("請先生成片段內容");
       return;
     }
-    setStepStatuses(prev => ({ ...prev, 3: "completed", 4: "completed" }));
-    setCurrentStep(5);
+    setStepStatuses(prev => ({ ...prev, 5: "completed", 6: "completed" }));
+    setCurrentStep(7);
   };
 
-  // 步驟5：編輯內容
+  // 步驟7：編輯內容
   const handleUpdateSegment = (segmentId: number, field: "description" | "narration", value: string) => {
     setSegments(prev => prev.map(seg => 
       seg.id === segmentId ? { ...seg, [field]: value } : seg
@@ -332,7 +396,6 @@ export default function WorkflowPage() {
   const handleRegenerateSegment = async (segmentId: number, field: "description" | "narration") => {
     toast.info(`正在重新生成第 ${segmentId} 段的${field === "description" ? "場景描述" : "旁白"}...`);
     
-    // 模擬 AI 重新生成
     setTimeout(() => {
       setSegments(prev => prev.map(seg => {
         if (seg.id === segmentId) {
@@ -348,12 +411,12 @@ export default function WorkflowPage() {
     }, 1500);
   };
 
-  const handleStep5Complete = () => {
-    setStepStatuses(prev => ({ ...prev, 5: "completed" }));
-    setCurrentStep(6);
+  const handleStep7Complete = () => {
+    setStepStatuses(prev => ({ ...prev, 7: "completed" }));
+    setCurrentStep(8);
   };
 
-  // 步驟6：確認並開始生成
+  // 步驟8：確認並開始生成
   const handleStartGeneration = async () => {
     if (!selectedVoiceActor) {
       toast.error("請選擇配音員");
@@ -361,48 +424,44 @@ export default function WorkflowPage() {
     }
 
     setIsProcessing(true);
-    setStepStatuses(prev => ({ ...prev, 6: "completed" }));
-    setCurrentStep(7);
+    setStepStatuses(prev => ({ ...prev, 8: "completed" }));
+    setCurrentStep(9);
 
     try {
       const result = await createLongVideo.mutateAsync({
         title: videoTitle,
-        story: storyOutline,
-        duration: selectedDuration * 60,
-        language: selectedLanguage === "clone" ? "cantonese" : selectedLanguage,
-        voiceActorId: selectedVoiceActor,
-        speedMode: selectedSpeedMode,
-        scenes: segments.map(seg => ({
+        outline: storyOutline,
+        segments: segments.map(seg => ({
           description: seg.description,
           narration: seg.narration,
         })),
+        language: selectedLanguage,
+        voiceActorId: selectedVoiceActor,
+        speedMode: selectedSpeedMode,
+        duration: selectedDuration,
       });
 
-      setTaskId(result.taskId);
-      toast.success("開始生成視頻！");
+      if (result.taskId) {
+        setTaskId(result.taskId);
+        toast.success("視頻生成任務已創建！");
+      }
     } catch (error: any) {
-      toast.error("生成失敗：" + error.message);
+      toast.error("創建任務失敗：" + error.message);
       setIsProcessing(false);
     }
   };
 
-  // 步驟7-9：監控生成進度
+  // 輪詢任務狀態
   const { data: taskStatus } = trpc.longVideo.getStatus.useQuery(
     { taskId: taskId! },
     { 
       enabled: !!taskId,
-      refetchInterval: (data) => {
-        if (data?.status === 'completed' || data?.status === 'failed') {
-          return false;
-        }
-        return 2000;
-      }
+      refetchInterval: taskId ? 3000 : false,
     }
   );
 
   useEffect(() => {
     if (taskStatus) {
-      // 更新片段狀態
       if (taskStatus.segments) {
         setSegments(prev => prev.map((seg, i) => {
           const serverSeg = taskStatus.segments[i];
@@ -419,27 +478,25 @@ export default function WorkflowPage() {
         }));
       }
 
-      // 計算進度
       if (taskStatus.segments) {
         const completed = taskStatus.segments.filter((s: any) => s.status === "completed").length;
         setGenerationProgress((completed / taskStatus.segments.length) * 100);
       }
 
-      // 檢查是否完成
       if (taskStatus.status === "completed") {
         setIsProcessing(false);
-        setStepStatuses(prev => ({ ...prev, 7: "completed", 8: "completed" }));
-        setCurrentStep(9);
+        setStepStatuses(prev => ({ ...prev, 9: "completed", 10: "completed" }));
+        setCurrentStep(11);
         toast.success("所有片段生成完成！");
       } else if (taskStatus.status === "failed") {
         setIsProcessing(false);
-        setStepStatuses(prev => ({ ...prev, 7: "error" }));
+        setStepStatuses(prev => ({ ...prev, 9: "error" }));
         toast.error("生成過程中出現錯誤");
       }
     }
   }, [taskStatus]);
 
-  // 步驟9：重新生成失敗的片段
+  // 步驟11：重新生成失敗的片段
   const handleRegenerateFailedSegment = async (segmentId: number) => {
     toast.info(`正在重新生成第 ${segmentId} 段視頻...`);
     
@@ -465,16 +522,16 @@ export default function WorkflowPage() {
     }
   };
 
-  const handleStep9Complete = () => {
+  const handleStep11Complete = () => {
     const allCompleted = segments.every(s => s.status === "completed");
     if (!allCompleted) {
       toast.warning("還有未完成的片段，建議先重新生成");
     }
-    setStepStatuses(prev => ({ ...prev, 9: "completed" }));
-    setCurrentStep(10);
+    setStepStatuses(prev => ({ ...prev, 11: "completed" }));
+    setCurrentStep(12);
   };
 
-  // 步驟10：生成字幕
+  // 步驟12：生成字幕
   const handleGenerateSubtitles = async () => {
     setIsGeneratingSubtitles(true);
     setIsProcessing(true);
@@ -498,7 +555,6 @@ export default function WorkflowPage() {
         setSubtitles(data.subtitles);
         toast.success("字幕生成成功！");
       } else {
-        // 本地生成備用字幕
         generateLocalSubtitles();
         toast.success("字幕生成成功！");
       }
@@ -523,18 +579,18 @@ export default function WorkflowPage() {
     setSubtitles(newSubtitles);
   };
 
-  const handleStep10Complete = () => {
-    setStepStatuses(prev => ({ ...prev, 10: "completed" }));
-    setCurrentStep(11);
+  const handleStep12Complete = () => {
+    setStepStatuses(prev => ({ ...prev, 12: "completed" }));
+    setCurrentStep(13);
   };
 
-  // 步驟11：調整音量
-  const handleStep11Complete = () => {
-    setStepStatuses(prev => ({ ...prev, 11: "completed" }));
-    setCurrentStep(12);
+  // 步驟13：調整音量
+  const handleStep13Complete = () => {
+    setStepStatuses(prev => ({ ...prev, 13: "completed" }));
+    setCurrentStep(14);
   };
 
-  // 步驟12：合併視頻
+  // 步驟14：合併視頻
   const handleMergeVideo = async () => {
     setIsMerging(true);
     setIsProcessing(true);
@@ -548,13 +604,9 @@ export default function WorkflowPage() {
         includeSubtitles: subtitles.length > 0,
       });
 
-      if (result.success && result.videoUrl) {
+      if (result.videoUrl) {
         setMergedVideoUrl(result.videoUrl);
         toast.success("視頻合併成功！");
-        setStepStatuses(prev => ({ ...prev, 12: "completed" }));
-        setCurrentStep(13);
-      } else {
-        toast.error("合併失敗：" + (result.error || "未知錯誤"));
       }
     } catch (error: any) {
       toast.error("合併失敗：" + error.message);
@@ -564,29 +616,38 @@ export default function WorkflowPage() {
     setIsProcessing(false);
   };
 
-  // 步驟13：生成 SEO
+  const handleStep14Complete = () => {
+    setStepStatuses(prev => ({ ...prev, 14: "completed" }));
+    setCurrentStep(15);
+  };
+
+  // 步驟15：SEO 優化
   const handleGenerateSeo = async () => {
     setIsGeneratingSeo(true);
     setIsProcessing(true);
 
     try {
       const result = await generateSeo.mutateAsync({
-        story: storyOutline,
-        language: selectedLanguage === "clone" ? "cantonese" : selectedLanguage,
-        platform: "youtube",
-        model: "gpt-5.2",
-        duration: selectedDuration * 60,
+        title: videoTitle,
+        outline: storyOutline,
+        language: selectedLanguage,
       });
 
-      if (result.success && result.data) {
-        setSeoResult(result.data);
+      if (result) {
+        setSeoResult(result as SeoResult);
         toast.success("SEO 內容生成成功！");
-        setStepStatuses(prev => ({ ...prev, 13: "completed" }));
-      } else {
-        toast.error("SEO 生成失敗：" + (result.error || "未知錯誤"));
+        setStepStatuses(prev => ({ ...prev, 15: "completed" }));
       }
     } catch (error: any) {
-      toast.error("SEO 生成失敗：" + error.message);
+      // 本地生成備用
+      setSeoResult({
+        title: `${videoTitle} | 精彩視頻`,
+        description: `探索「${videoTitle}」的精彩內容，${selectedDuration}分鐘帶你了解核心要點。`,
+        tags: [videoTitle, "視頻", "教程", "精彩內容", "AI生成"],
+        hashtags: [`#${videoTitle.replace(/\s/g, '')}`, "#AI視頻", "#精彩內容"],
+      });
+      toast.success("SEO 內容生成成功！");
+      setStepStatuses(prev => ({ ...prev, 15: "completed" }));
     }
 
     setIsGeneratingSeo(false);
@@ -596,7 +657,7 @@ export default function WorkflowPage() {
   // 本地生成大綱
   const generateLocalOutline = (title: string, duration: number): string => {
     const segmentCount = calculateSegments(duration);
-    const lang = selectedLanguage === "clone" ? "cantonese" : selectedLanguage;
+    const lang = selectedLanguage;
     
     if (lang === "cantonese") {
       return `【${title}】
@@ -651,14 +712,13 @@ Total: ${segmentCount} segments of 8 seconds each`;
 
   // 導航函數
   const handleStepClick = (stepId: number) => {
-    // 只能跳到已完成的步驟或當前步驟
     if (stepId <= currentStep || stepStatuses[stepId - 1] === "completed") {
       setCurrentStep(stepId);
     }
   };
 
   const handleNext = () => {
-    if (currentStep < 13) {
+    if (currentStep < 15) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -719,13 +779,210 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 className="w-full bg-gradient-to-r from-blue-500 to-cyan-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
-                下一步：生成故事大綱
+                下一步：選擇旁白語言
               </Button>
             </div>
           </StepCard>
         );
 
       case 2:
+        return (
+          <StepCard step={step} status={status} isCurrent={true}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Globe className="w-4 h-4" />
+                  選擇旁白語言
+                </Label>
+                <p className="text-sm text-zinc-400">
+                  不同語言會生成不同的口語化旁白，請選擇您想要的語言
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {(Object.entries(LANGUAGES) as [Language, typeof LANGUAGES.cantonese][]).map(([key, lang]) => {
+                  const isSelected = selectedLanguage === key;
+                  return (
+                    <div
+                      key={key}
+                      className={`cursor-pointer rounded-lg p-4 transition-all ${
+                        isSelected
+                          ? "bg-purple-500/20 border-2 border-purple-500"
+                          : "bg-zinc-800/50 border border-zinc-700 hover:border-purple-500/50"
+                      }`}
+                      onClick={() => setSelectedLanguage(key)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{lang.flag}</span>
+                        <div>
+                          <div className="font-medium">{lang.name}</div>
+                          <div className="text-xs text-zinc-400">{lang.description}</div>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <CheckCircle2 className="w-5 h-5 text-purple-500 absolute top-2 right-2" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <Button
+                onClick={handleStep2Complete}
+                className="w-full bg-gradient-to-r from-purple-500 to-pink-500"
+              >
+                <ChevronRight className="w-4 h-4 mr-2" />
+                下一步：篩選配音員
+              </Button>
+            </div>
+          </StepCard>
+        );
+
+      case 3:
+        return (
+          <StepCard step={step} status={status} isCurrent={true}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  篩選配音員
+                </Label>
+                <p className="text-sm text-zinc-400">
+                  根據性別、年齡、語氣等條件篩選配音員，並試聽語音
+                </p>
+              </div>
+
+              {/* 篩選條件 */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs flex items-center gap-1">
+                    <Filter className="w-3 h-3" />
+                    性別
+                  </Label>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={voiceGenderFilter === "male" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setVoiceGenderFilter(voiceGenderFilter === "male" ? "" : "male")}
+                      className="flex-1"
+                    >
+                      男性
+                    </Button>
+                    <Button
+                      variant={voiceGenderFilter === "female" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setVoiceGenderFilter(voiceGenderFilter === "female" ? "" : "female")}
+                      className="flex-1"
+                    >
+                      女性
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">年齡</Label>
+                  <Select value={voiceAgeFilter} onValueChange={setVoiceAgeFilter}>
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="全部" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">全部</SelectItem>
+                      <SelectItem value="young">年輕</SelectItem>
+                      <SelectItem value="adult">成年</SelectItem>
+                      <SelectItem value="middle">中年</SelectItem>
+                      <SelectItem value="elder">年長</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">語氣</Label>
+                  <Select value={voiceStyleFilter} onValueChange={setVoiceStyleFilter}>
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="全部" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">全部</SelectItem>
+                      <SelectItem value="narrator">旁白</SelectItem>
+                      <SelectItem value="news">新聞</SelectItem>
+                      <SelectItem value="storytelling">故事</SelectItem>
+                      <SelectItem value="commercial">廣告</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* 配音員列表 */}
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {filteredVoiceActors.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-400">
+                    <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>沒有符合條件的配音員</p>
+                    <p className="text-xs">請調整篩選條件</p>
+                  </div>
+                ) : (
+                  filteredVoiceActors.map((actor) => (
+                    <div
+                      key={actor.id}
+                      className={`flex items-center justify-between p-3 rounded-lg transition-all cursor-pointer ${
+                        selectedVoiceActor === actor.id
+                          ? "bg-pink-500/20 border-2 border-pink-500"
+                          : "bg-zinc-800/50 border border-zinc-700 hover:border-pink-500/50"
+                      }`}
+                      onClick={() => setSelectedVoiceActor(actor.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-purple-500 flex items-center justify-center">
+                          <span className="text-sm font-medium text-white">
+                            {actor.name.charAt(0)}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="font-medium">{actor.name}</div>
+                          <div className="text-xs text-zinc-400">
+                            {actor.gender === "male" ? "男" : "女"} · {actor.type || "標準"}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {actor.sampleUrl && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlaySample(actor.id, actor.sampleUrl);
+                            }}
+                          >
+                            {playingActorId === actor.id ? (
+                              <Volume2 className="w-4 h-4 animate-pulse" />
+                            ) : (
+                              <Play className="w-4 h-4" />
+                            )}
+                          </Button>
+                        )}
+                        {selectedVoiceActor === actor.id && (
+                          <CheckCircle2 className="w-5 h-5 text-pink-500" />
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <Button
+                onClick={handleStep3Complete}
+                disabled={!selectedVoiceActor}
+                className="w-full bg-gradient-to-r from-pink-500 to-rose-500"
+              >
+                <ChevronRight className="w-4 h-4 mr-2" />
+                下一步：生成故事大綱
+              </Button>
+            </div>
+          </StepCard>
+        );
+
+      case 4:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -759,9 +1016,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
               />
 
               <Button
-                onClick={handleStep2Complete}
+                onClick={handleStep4Complete}
                 disabled={!storyOutline.trim()}
-                className="w-full bg-gradient-to-r from-purple-500 to-pink-500"
+                className="w-full bg-gradient-to-r from-indigo-500 to-violet-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
                 下一步：生成片段內容
@@ -770,10 +1027,10 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 3:
-      case 4:
+      case 5:
+      case 6:
         return (
-          <StepCard step={WORKFLOW_STEPS[2]} status={stepStatuses[3] || "pending"} isCurrent={true}>
+          <StepCard step={WORKFLOW_STEPS[4]} status={stepStatuses[5] || "pending"} isCurrent={true}>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label>片段描述與旁白</Label>
@@ -821,7 +1078,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
               </div>
 
               <Button
-                onClick={handleStep3_4Complete}
+                onClick={handleStep5_6Complete}
                 disabled={!segments.some(s => s.description || s.narration)}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-500"
               >
@@ -832,7 +1089,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 5:
+      case 7:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -887,7 +1144,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
               </div>
 
               <Button
-                onClick={handleStep5Complete}
+                onClick={handleStep7Complete}
                 className="w-full bg-gradient-to-r from-rose-500 to-red-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
@@ -897,7 +1154,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 6:
+      case 8:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -933,51 +1190,35 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </div>
               </div>
 
-              {/* 語言選擇 */}
-              <div className="space-y-2">
-                <Label>旁白語言</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {Object.entries(LANGUAGES).filter(([key]) => key !== "clone").map(([key, lang]) => (
-                    <Button
-                      key={key}
-                      variant={selectedLanguage === key ? "default" : "outline"}
-                      onClick={() => setSelectedLanguage(key as Language)}
-                      className="h-auto py-2"
-                    >
-                      <div className="text-center">
-                        <div className="text-sm">{lang.name}</div>
-                        <div className="text-xs opacity-75">{lang.description}</div>
-                      </div>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 配音員選擇 */}
-              <div className="space-y-2">
-                <Label>選擇配音員</Label>
-                <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto">
-                  {filteredVoiceActors.map((actor: any) => (
-                    <div
-                      key={actor.id}
-                      className={`cursor-pointer rounded-lg p-2 transition-all ${
-                        selectedVoiceActor === actor.id
-                          ? "bg-blue-500/20 border-2 border-blue-500"
-                          : "bg-zinc-800/50 border border-zinc-700 hover:border-blue-500/50"
-                      }`}
-                      onClick={() => setSelectedVoiceActor(actor.id)}
-                    >
-                      <div className="font-medium text-sm">{actor.name}</div>
-                      <div className="text-xs text-zinc-400">{actor.gender === "male" ? "男" : "女"} · {actor.type}</div>
-                    </div>
-                  ))}
+              {/* 確認信息 */}
+              <div className="p-4 bg-zinc-800/50 rounded-lg">
+                <h4 className="font-medium mb-3">確認生成設定</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-zinc-400">語言</span>
+                    <p className="font-medium">{LANGUAGES[selectedLanguage].name}</p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-400">配音員</span>
+                    <p className="font-medium">
+                      {allVoiceActors.find(a => a.id === selectedVoiceActor)?.name || "未選擇"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-400">片段數</span>
+                    <p className="font-medium">{segments.length} 個</p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-400">預計時長</span>
+                    <p className="font-medium">{selectedDuration} 分鐘</p>
+                  </div>
                 </div>
               </div>
 
               <Button
                 onClick={handleStartGeneration}
-                disabled={!selectedVoiceActor || isProcessing}
-                className="w-full bg-gradient-to-r from-indigo-500 to-violet-500"
+                disabled={isProcessing}
+                className="w-full bg-gradient-to-r from-cyan-500 to-blue-500"
               >
                 {isProcessing ? (
                   <>
@@ -995,10 +1236,10 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 7:
-      case 8:
+      case 9:
+      case 10:
         return (
-          <StepCard step={WORKFLOW_STEPS[6]} status={stepStatuses[7] || "pending"} isCurrent={true}>
+          <StepCard step={WORKFLOW_STEPS[8]} status={stepStatuses[9] || "pending"} isCurrent={true}>
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1042,10 +1283,10 @@ Total: ${segmentCount} segments of 8 seconds each`;
               {taskStatus?.status === "completed" && (
                 <Button
                   onClick={() => {
-                    setStepStatuses(prev => ({ ...prev, 7: "completed", 8: "completed" }));
-                    setCurrentStep(9);
+                    setStepStatuses(prev => ({ ...prev, 9: "completed", 10: "completed" }));
+                    setCurrentStep(11);
                   }}
-                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-500"
+                  className="w-full bg-gradient-to-r from-teal-500 to-cyan-500"
                 >
                   <ChevronRight className="w-4 h-4 mr-2" />
                   下一步：檢查並重新生成
@@ -1055,7 +1296,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 9:
+      case 11:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -1098,7 +1339,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
               </div>
 
               <Button
-                onClick={handleStep9Complete}
+                onClick={handleStep11Complete}
                 className="w-full bg-gradient-to-r from-yellow-500 to-orange-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
@@ -1108,7 +1349,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 10:
+      case 12:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -1150,7 +1391,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
               )}
 
               <Button
-                onClick={handleStep10Complete}
+                onClick={handleStep12Complete}
                 className="w-full bg-gradient-to-r from-pink-500 to-rose-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
@@ -1160,7 +1401,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 11:
+      case 13:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-6">
@@ -1204,7 +1445,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
               </div>
 
               <Button
-                onClick={handleStep11Complete}
+                onClick={handleStep13Complete}
                 className="w-full bg-gradient-to-r from-violet-500 to-purple-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
@@ -1214,7 +1455,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 12:
+      case 14:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -1255,8 +1496,8 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     <Button
                       className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500"
                       onClick={() => {
-                        setStepStatuses(prev => ({ ...prev, 12: "completed" }));
-                        setCurrentStep(13);
+                        setStepStatuses(prev => ({ ...prev, 14: "completed" }));
+                        setCurrentStep(15);
                       }}
                     >
                       <ChevronRight className="w-4 h-4 mr-2" />
@@ -1287,7 +1528,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           </StepCard>
         );
 
-      case 13:
+      case 15:
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
@@ -1334,12 +1575,12 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </div>
               )}
 
-              {stepStatuses[13] === "completed" && (
+              {stepStatuses[15] === "completed" && (
                 <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg text-center">
                   <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-2" />
                   <h3 className="text-lg font-bold text-green-400">恭喜！視頻製作完成！</h3>
                   <p className="text-sm text-zinc-400 mt-1">
-                    您已完成所有 13 個步驟，視頻已準備好發布
+                    您已完成所有 15 個步驟，視頻已準備好發布
                   </p>
                 </div>
               )}
@@ -1366,7 +1607,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
                   VEO3 Studio
                 </h1>
-                <p className="text-xs text-muted-foreground">13步工作流程</p>
+                <p className="text-xs text-muted-foreground">15步工作流程</p>
               </div>
             </div>
           </div>
@@ -1430,7 +1671,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   onStepClick={handleStepClick}
                   onNext={handleNext}
                   onPrev={handlePrev}
-                  canGoNext={currentStep < 13}
+                  canGoNext={currentStep < 15}
                   canGoPrev={currentStep > 1}
                   isProcessing={isProcessing}
                 />
