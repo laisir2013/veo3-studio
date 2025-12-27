@@ -1653,7 +1653,7 @@ export const CLONE_VOICE_ACTORS: Record<string, VoiceActorConfig> = {
     name: "PO（克隆）",
     gender: "male",
     type: "narrator",
-    language: "cantonese",
+    language: "clone",
     ageGroup: "adult",
     style: ["narrator", "storytelling"],
     description: "PO 的克隆語音，粵語發音，聲音自然真實",
