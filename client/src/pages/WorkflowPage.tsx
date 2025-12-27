@@ -598,12 +598,15 @@ export default function WorkflowPage() {
   };
 
   const handleStep11Complete = () => {
+    console.log('[handleStep11Complete] Called, currentStep before:', currentStep);
     const allCompleted = segments.every(s => s.status === "completed");
     if (!allCompleted) {
       toast.warning("還有未完成的片段，建議先重新生成");
     }
     setStepStatuses(prev => ({ ...prev, 11: "completed" }));
     setCurrentStep(12);
+    console.log('[handleStep11Complete] setCurrentStep(12) called');
+    toast.success('正在跳轉到步驟 12...');
   };
 
   // 步驟12：生成字幕
