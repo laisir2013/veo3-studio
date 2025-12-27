@@ -13,12 +13,14 @@ import Characters from "./pages/Characters";
 import TaskProgress from "./pages/TaskProgress";
 import History from "./pages/History";
 import VideoEdit from "./pages/VideoEdit";
+import WorkflowPage from "./pages/WorkflowPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={WorkflowPage} />
+      <Route path="/classic" component={Home} />
       <Route path="/batch" component={BatchGenerate} />
       <Route path="/characters" component={Characters} />
       <Route path="/task/:id" component={TaskProgress} />
