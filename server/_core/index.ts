@@ -114,7 +114,12 @@ async function startServer() {
       // 1. 獲取任務信息以確定語言
       const { getLongVideoTask } = await import("../segmentBatchService");
       const task = getLongVideoTask(taskId);
-      const language = task?.language || "cantonese";
+      
+      if (!task) {
+        return res.status(404).json({ success: false, error: "任務不存在" });
+      }
+      
+      const language = task.language || "cantonese";
       
       // 2. 準備 narrationSegments
       const narrationSegments = segments.map((seg: any) => ({
@@ -125,7 +130,9 @@ async function startServer() {
       // 3. 調用字幕生成服務
       const { generateSubtitlesFromText } = await import("../subtitleService");
       // 這裡假設前端傳遞的 segments 已經是最終的片段，每個片段時長 8 秒
-      const subtitleTrack = await generateSubtitlesFromText(narrationSegments, 8, language);
+      // 由於 segments 中沒有 duration，我們從 task 中獲取
+      const segmentDuration = task.segmentDuration || 8;
+      const subtitleTrack = await generateSubtitlesFromText(narrationSegments, segmentDuration, language);
       
       // 4. 上傳字幕檔案
       const { uploadSubtitleFile } = await import("../subtitleMergeService");
