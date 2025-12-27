@@ -209,15 +209,44 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+// 優先使用 Forge API，如果沒有配置則使用 OpenAI API
+const resolveApiUrl = () => {
+  if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
+    return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
+  }
+  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
+    return "https://forge.manus.im/v1/chat/completions";
+  }
+  // 使用 OpenAI API
+  return "https://api.openai.com/v1/chat/completions";
+};
+
+const getApiKey = () => {
+  // 優先使用 Forge API Key
+  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
+    return ENV.forgeApiKey;
+  }
+  // 否則使用 OpenAI API Key
+  if (ENV.openaiApiKey && ENV.openaiApiKey.trim().length > 0) {
+    return ENV.openaiApiKey;
+  }
+  return null;
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured. Please set OPENAI_API_KEY or BUILT_IN_FORGE_API_KEY environment variable.");
   }
+};
+
+const getModel = () => {
+  // 如果使用 Forge API，使用 gemini-2.5-flash
+  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
+    return "gemini-2.5-flash";
+  }
+  // 否則使用 OpenAI 的 gpt-4o-mini
+  return "gpt-4o-mini";
 };
 
 const normalizeResponseFormat = ({
@@ -279,8 +308,13 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
+  const apiKey = getApiKey();
+  const apiUrl = resolveApiUrl();
+  const model = getModel();
+  const isForgeApi = ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0;
+
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model,
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,9 +330,13 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
+  payload.max_tokens = 4096;
+  
+  // 只有 Forge API 支持 thinking 參數
+  if (isForgeApi) {
+    payload.thinking = {
+      "budget_tokens": 128
+    };
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -312,21 +350,27 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
+  console.log(`[LLM] Calling ${apiUrl} with model ${model}`);
+
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[LLM] Error: ${response.status} ${response.statusText} – ${errorText}`);
     throw new Error(
       `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = await response.json() as InvokeResult;
+  console.log(`[LLM] Success: received ${result.choices?.length || 0} choices`);
+  
+  return result;
 }
