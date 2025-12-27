@@ -437,17 +437,24 @@ export default function WorkflowPage() {
     setCurrentStep(9);
 
     try {
+      // 將前端數據轉換為後端 API 期望的格式
+      // story = 標題 + 大綱 + 所有片段內容
+      const storyContent = [
+        `標題：${videoTitle}`,
+        `大綱：${storyOutline}`,
+        `片段內容：`,
+        ...segments.map((seg, i) => `片段${i + 1}: 場景-${seg.description} 旁白-${seg.narration}`)
+      ].join('\n');
+
+      // 處理語言類型 - clone 使用 cantonese 作為基礎語言
+      const apiLanguage = selectedLanguage === "clone" ? "cantonese" : selectedLanguage;
+
       const result = await createLongVideo.mutateAsync({
-        title: videoTitle,
-        outline: storyOutline,
-        segments: segments.map(seg => ({
-          description: seg.description,
-          narration: seg.narration,
-        })),
-        language: selectedLanguage,
+        durationMinutes: selectedDuration,
+        story: storyContent,
+        language: apiLanguage as "cantonese" | "mandarin" | "english",
         voiceActorId: selectedVoiceActor,
         speedMode: selectedSpeedMode,
-        duration: selectedDuration,
       });
 
       if (result.taskId) {
