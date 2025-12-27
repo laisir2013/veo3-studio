@@ -1912,13 +1912,14 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               
               if (completedSegments.length > 0) {
                 // 合併視頻
-                const finalVideoUrl = await mergeVideos(
-                  completedSegments.map(seg => seg.videoUrl!),
-                  completedSegments.map(seg => seg.audioUrl),
-                  task.bgmType || 'none',
-                  task.subtitleStyle || 'none'
-                );
+                const mergeResult = await mergeVideos({
+                  videoUrls: completedSegments.map(seg => seg.videoUrl!),
+                  narrations: completedSegments.map(seg => seg.narration || ''),
+                  bgmType: (task.bgmType || 'none') as any,
+                  subtitleStyle: (task.subtitleStyle || 'none') as any,
+                });
                 
+                const finalVideoUrl = mergeResult.success ? mergeResult.videoUrl : completedSegments[0].videoUrl;
                 console.log(`[LongVideo ${taskId}] 視頻合併完成: ${finalVideoUrl}`);
                 updateLongVideoTask(taskId, {
                   status: "completed",
