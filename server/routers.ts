@@ -1988,9 +1988,20 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             }
             
             // 3. 生成語音旁白
+            // 從 narrationSegments 中提取旁白文字（LLM 返回的是 narrationSegments 陣列，不是單一 narration 字段）
+            let narrationText = `Scene ${segment.id} narration`;
+            if (sceneData?.narrationSegments && Array.isArray(sceneData.narrationSegments)) {
+              // 將所有旁白片段合併成一個完整的旁白
+              narrationText = sceneData.narrationSegments.map((seg: any) => seg.text).join(' ');
+              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 旁白文字: ${narrationText.substring(0, 100)}...`);
+            } else if (sceneData?.narration) {
+              // 備用：如果有單一 narration 字段
+              narrationText = sceneData.narration;
+            }
+            
             const voiceActorId = task.voiceActorId || 'default';
             const audioUrl = await generateSpeech(
-              sceneData?.narration || `Scene ${segment.id} narration`,
+              narrationText,
               voiceActorId,
               (task.language || 'cantonese') as any
             );
@@ -2005,7 +2016,7 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               progress: 100,
               videoUrl: videoUrl, // 使用實際生成的視頻/圖片 URL
               audioUrl: audioUrl, // 使用實際生成的音頻 URL
-              narration: sceneData?.narration,
+              narration: narrationText, // 使用正確的旁白文字
               prompt: sceneData?.description,
             });
           } catch (error) {
