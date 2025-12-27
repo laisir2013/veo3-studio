@@ -1,10 +1,13 @@
-# 構建階段
-FROM node:22-alpine AS builder
+# VEO3 Studio Dockerfile
+# 包含 FFmpeg 以支援視頻合併功能
+
+# 構建階段 - 使用 debian 以便安裝 FFmpeg
+FROM node:20-bookworm AS builder
 
 WORKDIR /app
 
 # 安裝 pnpm
-RUN npm install -g pnpm
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 # 複製依賴文件
 COPY package.json pnpm-lock.yaml ./
@@ -18,13 +21,23 @@ COPY . .
 # 構建應用
 RUN pnpm build
 
-# 運行階段
-FROM node:22-alpine
+# 運行階段 - 使用 debian 以便安裝 FFmpeg
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# 安裝 FFmpeg 和其他必要工具
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# 驗證 FFmpeg 安裝
+RUN ffmpeg -version
+
 # 安裝 pnpm
-RUN npm install -g pnpm
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 # 複製依賴文件
 COPY package.json pnpm-lock.yaml ./
@@ -37,10 +50,10 @@ COPY --from=builder /app/dist ./dist
 
 # 設置環境變量
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=10000
 
 # 暴露端口
-EXPOSE 3000
+EXPOSE 10000
 
 # 啟動應用
 CMD ["node", "dist/index.js"]
