@@ -376,8 +376,8 @@ export default function WorkflowPage() {
     for (let i = 0; i < segmentCount; i++) {
       newSegments.push({
         id: i + 1,
-        description: `場景 ${i + 1}：${videoTitle} 的第 ${i + 1} 個精彩畫面，展示主題的核心內容。`,
-        narration: `這是第 ${i + 1} 段旁白，講述關於「${videoTitle}」的精彩故事。`,
+        description: "",  // 等待 AI 生成
+        narration: "",     // 等待 AI 生成
         status: "pending",
       });
     }
@@ -409,9 +409,9 @@ export default function WorkflowPage() {
       setSegments(prev => prev.map(seg => {
         if (seg.id === segmentId) {
           if (field === "description") {
-            return { ...seg, description: `[AI 重新生成] 場景 ${segmentId}：${videoTitle} 的全新視覺呈現。` };
+            return { ...seg, description: `場景 ${segmentId}：展示 ${videoTitle} 的核心內容，畫面充滿視覺衝擊力。` };
           } else {
-            return { ...seg, narration: `[AI 重新生成] 這是重新生成的第 ${segmentId} 段旁白內容。` };
+            return { ...seg, narration: `（請點擊「AI 生成所有片段」按鈕生成真實旁白內容）` };
           }
         }
         return seg;
@@ -582,7 +582,7 @@ export default function WorkflowPage() {
       items: [{
         start: 0,
         end: 8,
-        text: seg.narration || `第 ${seg.id} 段字幕`,
+        text: seg.narration || "",
       }],
     }));
     setSubtitles(newSubtitles);
