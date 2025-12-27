@@ -561,15 +561,18 @@ export default function WorkflowPage() {
       if (taskStatus.status === "completed") {
         setIsProcessing(false);
         setStepStatuses(prev => ({ ...prev, 9: "completed", 10: "completed" }));
-        setCurrentStep(11);
-        toast.success("所有片段生成完成！");
+        // 只有當 currentStep 小於 11 時才自動跳轉，避免從第 12-14 步被拉回
+        if (currentStep < 11) {
+          setCurrentStep(11);
+          toast.success("所有片段生成完成！");
+        }
       } else if (taskStatus.status === "failed") {
         setIsProcessing(false);
         setStepStatuses(prev => ({ ...prev, 9: "error" }));
         toast.error("生成過程中出現錯誤");
       }
     }
-  }, [taskStatus]);
+  }, [taskStatus, currentStep]);
 
   // 步驟11：重新生成失敗的片段
   const handleRegenerateFailedSegment = async (segmentId: number) => {
