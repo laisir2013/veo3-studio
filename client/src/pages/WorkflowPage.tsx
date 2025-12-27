@@ -644,7 +644,7 @@ export default function WorkflowPage() {
 
     try {
       const result = await mergeVideo.mutateAsync({
-        taskId: taskId!,
+        taskId: parseInt(taskId!), // 將字符串轉換為數字
         narrationVolume,
         bgmVolume,
         videoVolume,
