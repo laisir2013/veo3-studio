@@ -765,6 +765,84 @@ export const appRouter = router({
         const success = deleteLongVideoTask(input.taskId);
         return { success };
       }),
+
+    // 合併長視頻
+    merge: publicProcedure
+      .input(z.object({
+        taskId: z.string(),
+        narrationVolume: z.number().min(0).max(100).default(80),
+        bgmVolume: z.number().min(0).max(100).default(10),
+        originalVolume: z.number().min(0).max(100).default(10),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const task = getLongVideoTask(input.taskId);
+        if (!task) {
+          throw new Error("任務不存在");
+        }
+        // 訪客模式下跳過用戶檢查
+        const userId = ctx.user?.id ?? 0;
+        if (task.userId !== userId && task.userId !== 0) {
+          throw new Error("無權訪問此任務");
+        }
+
+        // 獲取所有已完成的片段
+        const completedSegments = task.segments.filter(seg => seg.status === "completed" && seg.videoUrl);
+        if (completedSegments.length === 0) {
+          throw new Error("沒有已完成的片段可以合併");
+        }
+
+        console.log(`[LongVideo ${task.id}] 開始合併 ${completedSegments.length} 個片段...`);
+
+        try {
+          // 調用視頻合併服務
+          const mergeResult = await mergeVideos({
+            videoUrls: completedSegments.map(seg => seg.videoUrl!),
+            narrations: completedSegments.map(seg => seg.narration || ""),
+            bgmType: (task.bgmType || "none") as BgmType,
+            subtitleStyle: (task.subtitleStyle || "none") as SubtitleStyle,
+            narrationVolume: input.narrationVolume,
+            bgmVolume: input.bgmVolume,
+            originalVolume: input.originalVolume,
+          });
+
+          // 更新任務狀態
+          updateLongVideoTask(task.id, {
+            status: "completed",
+            progress: 100,
+            finalVideoUrl: mergeResult.videoUrl,
+            completedAt: new Date().toISOString(),
+          });
+
+          console.log(`[LongVideo ${task.id}] 視頻合併完成: ${mergeResult.videoUrl}`);
+
+          return {
+            success: true,
+            videoUrl: mergeResult.videoUrl,
+            duration: mergeResult.duration,
+          };
+        } catch (error: any) {
+          console.error(`[LongVideo ${task.id}] 視頻合併失敗:`, error);
+          
+          // 如果合併失敗，嘗試返回第一個視頻作為後備
+          if (completedSegments.length > 0 && completedSegments[0].videoUrl) {
+            console.log(`[LongVideo ${task.id}] 使用第一個片段作為後備視頻`);
+            updateLongVideoTask(task.id, {
+              status: "completed",
+              progress: 100,
+              finalVideoUrl: completedSegments[0].videoUrl,
+              completedAt: new Date().toISOString(),
+            });
+            return {
+              success: true,
+              videoUrl: completedSegments[0].videoUrl,
+              duration: task.totalDurationMinutes * 60,
+              fallback: true,
+            };
+          }
+          
+          throw new Error("視頻合併失敗: " + error.message);
+        }
+      }),
   }),
 
   // 配音員相關路由

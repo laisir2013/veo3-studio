@@ -215,7 +215,7 @@ export default function WorkflowPage() {
   const generateSegmentsMutation = trpc.video.generateSegments?.useMutation?.() || null;
   const createLongVideo = trpc.longVideo.create.useMutation();
   const generateSeo = trpc.video.generateSeo.useMutation();
-  const mergeVideo = trpc.video.merge.useMutation();
+  const mergeVideo = trpc.longVideo.merge.useMutation();
 
   // 初始化片段
   useEffect(() => {
@@ -646,23 +646,16 @@ export default function WorkflowPage() {
       return;
     }
 
-    const parsedTaskId = parseInt(taskId);
-    if (isNaN(parsedTaskId)) {
-      toast.error("無效的任務 ID，請從頭開始工作流程");
-      setIsMerging(false);
-      setIsProcessing(false);
-      return;
-    }
     setIsMerging(true);
     setIsProcessing(true);
 
     try {
+      // longVideo.merge 使用字符串 taskId
       const result = await mergeVideo.mutateAsync({
-        taskId: parsedTaskId,
+        taskId: taskId, // 直接使用字符串 taskId
         narrationVolume,
         bgmVolume,
-        videoVolume,
-        includeSubtitles: subtitles.length > 0,
+        originalVolume: videoVolume,
       });
 
       if (result.videoUrl) {
