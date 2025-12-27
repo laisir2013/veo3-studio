@@ -110,6 +110,15 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: JsonSchema };
 
+// API 配置類型
+interface ApiConfig {
+  provider: string;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  priority: number;
+}
+
 const ensureArray = (
   value: MessageContent | MessageContent[]
 ): MessageContent[] => (Array.isArray(value) ? value : [value]);
@@ -209,56 +218,78 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-// 獲取 API 配置
-const getApiConfig = () => {
-  // 優先使用 Forge API（Manus 平台內部）
+// 獲取所有可用的 API 配置（按優先級排序）
+const getAllApiConfigs = (): ApiConfig[] => {
+  const configs: ApiConfig[] = [];
+  
+  // 優先級 1: Forge API（Manus 平台內部）- 最高優先級作為後備
   if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
-    return {
+    configs.push({
       provider: "forge",
       apiUrl: ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
         ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
         : "https://forge.manus.im/v1/chat/completions",
       apiKey: ENV.forgeApiKey,
       model: "gemini-2.5-flash",
-    };
+      priority: 1,
+    });
   }
   
-  // 使用 Vector Engine API（中轉服務，支持多種模型）
+  // 優先級 2: Vector Engine API（中轉服務）
   if (ENV.vectorEngineApiKey && ENV.vectorEngineApiKey.trim().length > 0) {
-    return {
+    configs.push({
       provider: "vectorengine",
       apiUrl: `${ENV.vectorEngineApiUrl.replace(/\/$/, "")}/v1/chat/completions`,
       apiKey: ENV.vectorEngineApiKey,
-      model: "gpt-4o-mini", // Vector Engine 支持多種模型
-    };
+      model: "gpt-4o-mini",
+      priority: 2,
+    });
   }
   
-  // 使用 Anthropic Claude API
+  // 優先級 3: Anthropic Claude API
   if (ENV.anthropicApiKey && ENV.anthropicApiKey.trim().length > 0) {
-    return {
+    configs.push({
       provider: "anthropic",
       apiUrl: "https://api.anthropic.com/v1/messages",
       apiKey: ENV.anthropicApiKey,
-      model: "claude-sonnet-4-20250514", // Claude 4.5
-    };
+      model: "claude-sonnet-4-20250514",
+      priority: 3,
+    });
   }
   
-  // 使用 OpenAI API
+  // 優先級 4: OpenAI API
   if (ENV.openaiApiKey && ENV.openaiApiKey.trim().length > 0) {
-    return {
+    configs.push({
       provider: "openai",
       apiUrl: "https://api.openai.com/v1/chat/completions",
       apiKey: ENV.openaiApiKey,
-      model: "gpt-4o-mini", // 或 gpt-4o
-    };
+      model: "gpt-4o-mini",
+      priority: 4,
+    });
   }
   
-  return null;
+  // 按優先級排序（數字越小優先級越高）
+  // 但我們希望先嘗試用戶配置的 API，失敗後再用 Forge
+  // 所以重新排序：Vector Engine > Anthropic > OpenAI > Forge（作為最終後備）
+  return configs.sort((a, b) => {
+    // Forge 作為最終後備，放到最後
+    if (a.provider === "forge") return 1;
+    if (b.provider === "forge") return -1;
+    // 其他按原優先級
+    return a.priority - b.priority;
+  });
+};
+
+// 獲取主要 API 配置（第一個非 Forge 的配置）
+const getApiConfig = (): ApiConfig | null => {
+  const configs = getAllApiConfigs();
+  // 返回第一個配置（已經排序好，Forge 在最後）
+  return configs.length > 0 ? configs[0] : null;
 };
 
 const assertApiKey = () => {
-  const config = getApiConfig();
-  if (!config) {
+  const configs = getAllApiConfigs();
+  if (configs.length === 0) {
     throw new Error("No LLM API key configured. Please set VECTOR_ENGINE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or BUILT_IN_FORGE_API_KEY environment variable.");
   }
 };
@@ -309,7 +340,7 @@ const normalizeResponseFormat = ({
 };
 
 // Anthropic Claude API 調用
-async function invokeAnthropicLLM(params: InvokeParams, config: { apiUrl: string; apiKey: string; model: string }): Promise<InvokeResult> {
+async function invokeAnthropicLLM(params: InvokeParams, config: ApiConfig): Promise<InvokeResult> {
   const { messages } = params;
   
   // 將 OpenAI 格式轉換為 Anthropic 格式
@@ -387,7 +418,7 @@ async function invokeAnthropicLLM(params: InvokeParams, config: { apiUrl: string
 }
 
 // OpenAI 兼容 API 調用
-async function invokeOpenAILLM(params: InvokeParams, config: { apiUrl: string; apiKey: string; model: string; provider: string }): Promise<InvokeResult> {
+async function invokeOpenAILLM(params: InvokeParams, config: ApiConfig): Promise<InvokeResult> {
   const {
     messages,
     tools,
@@ -424,8 +455,6 @@ async function invokeOpenAILLM(params: InvokeParams, config: { apiUrl: string; a
       "budget_tokens": 128
     };
   }
-  
-  // Vector Engine 不需要特殊處理，使用標準 OpenAI 格式
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
@@ -463,14 +492,50 @@ async function invokeOpenAILLM(params: InvokeParams, config: { apiUrl: string; a
   return result;
 }
 
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
-
-  const config = getApiConfig()!;
-
+// 使用指定配置調用 LLM
+async function invokeLLMWithConfig(params: InvokeParams, config: ApiConfig): Promise<InvokeResult> {
   if (config.provider === "anthropic") {
     return invokeAnthropicLLM(params, config);
   }
+  return invokeOpenAILLM(params, config);
+}
 
-  return invokeOpenAILLM(params, { ...config, provider: config.provider });
+// 主要的 LLM 調用函數（帶後備方案）
+export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  assertApiKey();
+
+  const configs = getAllApiConfigs();
+  const errors: string[] = [];
+  
+  // 依次嘗試每個 API 配置
+  for (const config of configs) {
+    try {
+      console.log(`[LLM Fallback] Trying ${config.provider} API...`);
+      const result = await invokeLLMWithConfig(params, config);
+      console.log(`[LLM Fallback] ${config.provider} API succeeded!`);
+      return result;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[LLM Fallback] ${config.provider} API failed: ${errorMsg}`);
+      errors.push(`${config.provider}: ${errorMsg}`);
+      
+      // 如果還有其他配置，繼續嘗試
+      if (configs.indexOf(config) < configs.length - 1) {
+        console.log(`[LLM Fallback] Switching to next available API...`);
+      }
+    }
+  }
+  
+  // 所有 API 都失敗了
+  throw new Error(`All LLM APIs failed:\n${errors.join('\n')}`);
+}
+
+// 導出獲取當前配置的函數（用於調試）
+export function getCurrentApiConfig(): ApiConfig | null {
+  return getApiConfig();
+}
+
+// 導出獲取所有配置的函數（用於調試）
+export function getAvailableApiConfigs(): ApiConfig[] {
+  return getAllApiConfigs();
 }
