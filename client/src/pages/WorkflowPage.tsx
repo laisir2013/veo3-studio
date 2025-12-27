@@ -90,8 +90,9 @@ const SPEED_MODE_PRESETS = {
   },
 };
 
-// 時長選項
-const PRESET_DURATIONS = [1, 2, 3, 5, 7, 10, 15, 20, 30] as const;
+// 時長選項（分鐘）- 包含測試用的短時長選項
+// 0.27 分鐘 = 16 秒, 0.4 分鐘 = 24 秒
+const PRESET_DURATIONS = [0.27, 0.4, 1, 2, 3, 5, 7, 10, 15, 20, 30] as const;
 const SEGMENT_DURATION_SECONDS = 8;
 const BATCH_SIZE = 6;
 
@@ -995,20 +996,27 @@ Total: ${segmentCount} segments of 8 seconds each`;
               <div className="space-y-2">
                 <Label>影片時長</Label>
                 <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
-                  {PRESET_DURATIONS.map((minutes) => (
-                    <div
-                      key={minutes}
-                      className={`cursor-pointer rounded-lg p-2 text-center transition-all ${
-                        selectedDuration === minutes
-                          ? "bg-purple-500/20 border-2 border-purple-500"
-                          : "bg-zinc-800/50 border border-zinc-700 hover:border-purple-500/50"
-                      }`}
-                      onClick={() => setSelectedDuration(minutes)}
-                    >
-                      <div className="text-base sm:text-lg font-bold text-white">{minutes}</div>
-                      <div className="text-[10px] sm:text-xs text-zinc-400">分鐘</div>
-                    </div>
-                  ))}
+                  {PRESET_DURATIONS.map((minutes) => {
+                    // 對於小於 1 分鐘的選項，顯示秒數
+                    const isSeconds = minutes < 1;
+                    const displayValue = isSeconds ? Math.round(minutes * 60) : minutes;
+                    const displayUnit = isSeconds ? "秒" : "分鐘";
+                    
+                    return (
+                      <div
+                        key={minutes}
+                        className={`cursor-pointer rounded-lg p-2 text-center transition-all ${
+                          selectedDuration === minutes
+                            ? "bg-purple-500/20 border-2 border-purple-500"
+                            : "bg-zinc-800/50 border border-zinc-700 hover:border-purple-500/50"
+                        }`}
+                        onClick={() => setSelectedDuration(minutes)}
+                      >
+                        <div className="text-base sm:text-lg font-bold text-white">{displayValue}</div>
+                        <div className="text-[10px] sm:text-xs text-zinc-400">{displayUnit}</div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <p className="text-sm text-zinc-400">
                   將生成 {calculateSegments(selectedDuration)} 個 8 秒片段，分 {calculateBatches(calculateSegments(selectedDuration))} 批處理
