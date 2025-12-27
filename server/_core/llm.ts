@@ -209,44 +209,48 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-// 優先使用 Forge API，如果沒有配置則使用 OpenAI API
-const resolveApiUrl = () => {
-  if (ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0) {
-    return `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`;
-  }
+// 獲取 API 配置
+const getApiConfig = () => {
+  // 優先使用 Forge API（Manus 平台內部）
   if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
-    return "https://forge.manus.im/v1/chat/completions";
+    return {
+      provider: "forge",
+      apiUrl: ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+        ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
+        : "https://forge.manus.im/v1/chat/completions",
+      apiKey: ENV.forgeApiKey,
+      model: "gemini-2.5-flash",
+    };
   }
+  
+  // 使用 Anthropic Claude API
+  if (ENV.anthropicApiKey && ENV.anthropicApiKey.trim().length > 0) {
+    return {
+      provider: "anthropic",
+      apiUrl: "https://api.anthropic.com/v1/messages",
+      apiKey: ENV.anthropicApiKey,
+      model: "claude-sonnet-4-20250514", // Claude 4.5
+    };
+  }
+  
   // 使用 OpenAI API
-  return "https://api.openai.com/v1/chat/completions";
-};
-
-const getApiKey = () => {
-  // 優先使用 Forge API Key
-  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
-    return ENV.forgeApiKey;
-  }
-  // 否則使用 OpenAI API Key
   if (ENV.openaiApiKey && ENV.openaiApiKey.trim().length > 0) {
-    return ENV.openaiApiKey;
+    return {
+      provider: "openai",
+      apiUrl: "https://api.openai.com/v1/chat/completions",
+      apiKey: ENV.openaiApiKey,
+      model: "gpt-4o-mini", // 或 gpt-4o
+    };
   }
+  
   return null;
 };
 
 const assertApiKey = () => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured. Please set OPENAI_API_KEY or BUILT_IN_FORGE_API_KEY environment variable.");
+  const config = getApiConfig();
+  if (!config) {
+    throw new Error("No LLM API key configured. Please set OPENAI_API_KEY, ANTHROPIC_API_KEY, or BUILT_IN_FORGE_API_KEY environment variable.");
   }
-};
-
-const getModel = () => {
-  // 如果使用 Forge API，使用 gemini-2.5-flash
-  if (ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0) {
-    return "gemini-2.5-flash";
-  }
-  // 否則使用 OpenAI 的 gpt-4o-mini
-  return "gpt-4o-mini";
 };
 
 const normalizeResponseFormat = ({
@@ -294,9 +298,86 @@ const normalizeResponseFormat = ({
   };
 };
 
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+// Anthropic Claude API 調用
+async function invokeAnthropicLLM(params: InvokeParams, config: { apiUrl: string; apiKey: string; model: string }): Promise<InvokeResult> {
+  const { messages } = params;
+  
+  // 將 OpenAI 格式轉換為 Anthropic 格式
+  let systemPrompt = "";
+  const anthropicMessages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  
+  for (const msg of messages) {
+    const normalizedMsg = normalizeMessage(msg);
+    const content = typeof normalizedMsg.content === "string" 
+      ? normalizedMsg.content 
+      : JSON.stringify(normalizedMsg.content);
+    
+    if (normalizedMsg.role === "system") {
+      systemPrompt = content;
+    } else if (normalizedMsg.role === "user" || normalizedMsg.role === "assistant") {
+      anthropicMessages.push({
+        role: normalizedMsg.role,
+        content,
+      });
+    }
+  }
 
+  const payload: Record<string, unknown> = {
+    model: config.model,
+    max_tokens: 4096,
+    messages: anthropicMessages,
+  };
+
+  if (systemPrompt) {
+    payload.system = systemPrompt;
+  }
+
+  console.log(`[LLM] Calling Anthropic API with model ${config.model}`);
+
+  const response = await fetch(config.apiUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": config.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[LLM] Anthropic Error: ${response.status} ${response.statusText} – ${errorText}`);
+    throw new Error(
+      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+    );
+  }
+
+  const result = await response.json();
+  console.log(`[LLM] Anthropic Success`);
+
+  // 將 Anthropic 響應轉換為 OpenAI 格式
+  return {
+    id: result.id || "anthropic-response",
+    created: Date.now(),
+    model: result.model || config.model,
+    choices: [{
+      index: 0,
+      message: {
+        role: "assistant",
+        content: result.content?.[0]?.text || "",
+      },
+      finish_reason: result.stop_reason || "stop",
+    }],
+    usage: {
+      prompt_tokens: result.usage?.input_tokens || 0,
+      completion_tokens: result.usage?.output_tokens || 0,
+      total_tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
+    },
+  };
+}
+
+// OpenAI 兼容 API 調用
+async function invokeOpenAILLM(params: InvokeParams, config: { apiUrl: string; apiKey: string; model: string; provider: string }): Promise<InvokeResult> {
   const {
     messages,
     tools,
@@ -308,13 +389,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
-  const apiKey = getApiKey();
-  const apiUrl = resolveApiUrl();
-  const model = getModel();
-  const isForgeApi = ENV.forgeApiKey && ENV.forgeApiKey.trim().length > 0;
-
   const payload: Record<string, unknown> = {
-    model,
+    model: config.model,
     messages: messages.map(normalizeMessage),
   };
 
@@ -333,7 +409,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   payload.max_tokens = 4096;
   
   // 只有 Forge API 支持 thinking 參數
-  if (isForgeApi) {
+  if (config.provider === "forge") {
     payload.thinking = {
       "budget_tokens": 128
     };
@@ -350,27 +426,39 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  console.log(`[LLM] Calling ${apiUrl} with model ${model}`);
+  console.log(`[LLM] Calling ${config.provider} API (${config.apiUrl}) with model ${config.model}`);
 
-  const response = await fetch(apiUrl, {
+  const response = await fetch(config.apiUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
+      authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[LLM] Error: ${response.status} ${response.statusText} – ${errorText}`);
+    console.error(`[LLM] ${config.provider} Error: ${response.status} ${response.statusText} – ${errorText}`);
     throw new Error(
       `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
     );
   }
 
   const result = await response.json() as InvokeResult;
-  console.log(`[LLM] Success: received ${result.choices?.length || 0} choices`);
+  console.log(`[LLM] ${config.provider} Success: received ${result.choices?.length || 0} choices`);
   
   return result;
+}
+
+export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  assertApiKey();
+
+  const config = getApiConfig()!;
+
+  if (config.provider === "anthropic") {
+    return invokeAnthropicLLM(params, config);
+  }
+
+  return invokeOpenAILLM(params, { ...config, provider: config.provider });
 }
