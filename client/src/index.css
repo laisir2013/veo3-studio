@@ -116,9 +116,25 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* 移動端優化：消除點擊高亮 */
+    -webkit-tap-highlight-color: transparent;
+    /* 移動端優化：優化觸控行為 */
+    touch-action: manipulation;
   }
   body {
     @apply bg-background text-foreground;
+    /* 移動端優化：防止水平滾動 */
+    overflow-x: hidden;
+    /* 移動端優化：優化觸控行為 */
+    touch-action: manipulation;
+    /* 移動端優化：防止文字選取時的閃爍 */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* 允許輸入框和文字區域選取文字 */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -274,5 +290,64 @@
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ============================================ */
+/* 移動端優化樣式 */
+/* ============================================ */
+
+/* 按鈕觸控優化 */
+button, 
+[role="button"],
+.btn {
+  /* 最小觸控區域 44x44px (Apple HIG 建議) */
+  min-height: 44px;
+  /* 優化觸控行為 */
+  touch-action: manipulation;
+  /* 確保可點擊 */
+  cursor: pointer;
+  /* 防止文字選取 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 按鈕按下效果 */
+button:active:not(:disabled),
+[role="button"]:active:not([aria-disabled="true"]),
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  opacity: 0.9;
+}
+
+/* 移動端滾動優化 */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* 移動端安全區域適配 */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* 移動端響應式字體 */
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+  
+  /* 增大移動端按鈕 */
+  button,
+  [role="button"],
+  .btn {
+    min-height: 48px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
 }

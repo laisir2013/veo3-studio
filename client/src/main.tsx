@@ -8,6 +8,33 @@ import App from "./App";
 import { getLoginUrl, isGuestMode } from "./const";
 import "./index.css";
 
+// ============================================
+// 移動端優化：防止雙擊縮放
+// ============================================
+if (typeof window !== "undefined") {
+  let lastTouchEnd = 0;
+  document.addEventListener(
+    "touchend",
+    (event) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) {
+        event.preventDefault();
+      }
+      lastTouchEnd = now;
+    },
+    { passive: false }
+  );
+
+  // 防止雙指縮放
+  document.addEventListener(
+    "gesturestart",
+    (event) => {
+      event.preventDefault();
+    },
+    { passive: false }
+  );
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
