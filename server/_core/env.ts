@@ -9,4 +9,6 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  vectorEngineApiKey: process.env.VECTOR_ENGINE_API_KEY ?? "",
+  vectorEngineApiUrl: process.env.VECTOR_ENGINE_API_URL ?? "https://api.vectorengine.ai",
 };

@@ -223,6 +223,16 @@ const getApiConfig = () => {
     };
   }
   
+  // 使用 Vector Engine API（中轉服務，支持多種模型）
+  if (ENV.vectorEngineApiKey && ENV.vectorEngineApiKey.trim().length > 0) {
+    return {
+      provider: "vectorengine",
+      apiUrl: `${ENV.vectorEngineApiUrl.replace(/\/$/, "")}/v1/chat/completions`,
+      apiKey: ENV.vectorEngineApiKey,
+      model: "gpt-4o-mini", // Vector Engine 支持多種模型
+    };
+  }
+  
   // 使用 Anthropic Claude API
   if (ENV.anthropicApiKey && ENV.anthropicApiKey.trim().length > 0) {
     return {
@@ -249,7 +259,7 @@ const getApiConfig = () => {
 const assertApiKey = () => {
   const config = getApiConfig();
   if (!config) {
-    throw new Error("No LLM API key configured. Please set OPENAI_API_KEY, ANTHROPIC_API_KEY, or BUILT_IN_FORGE_API_KEY environment variable.");
+    throw new Error("No LLM API key configured. Please set VECTOR_ENGINE_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or BUILT_IN_FORGE_API_KEY environment variable.");
   }
 };
 
@@ -414,6 +424,8 @@ async function invokeOpenAILLM(params: InvokeParams, config: { apiUrl: string; a
       "budget_tokens": 128
     };
   }
+  
+  // Vector Engine 不需要特殊處理，使用標準 OpenAI 格式
 
   const normalizedResponseFormat = normalizeResponseFormat({
     responseFormat,
