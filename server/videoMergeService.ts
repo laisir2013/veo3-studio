@@ -722,17 +722,99 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
 }
 
 /**
- * 上傳合併後的視頻 - 使用 Manus Storage API
+ * 上傳合併後的視頻 - 多重上傳方案
+ * 優先順序：file.io → 0x0.st → Manus Storage → VectorEngine
  */
 async function uploadMergedVideo(localPath: string): Promise<string | null> {
   const fs = await import("fs");
+  const fileBuffer = fs.readFileSync(localPath);
+  const fileSizeMB = (fileBuffer.length / 1024 / 1024).toFixed(2);
+  const fileName = `merged_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
   
-  console.log(`[Upload] 📤 開始上傳合併後的視頻...`);
+  console.log(`[Upload] 📤 開始上傳合併後的視頻（${fileSizeMB} MB）...`);
 
-  // 方案 1：使用 Manus Storage API（推薦）
+  // ========================================
+  // 方案 1：file.io（免費臨時託管，優先使用）
+  // ========================================
   try {
-    const fileBuffer = fs.readFileSync(localPath);
-    const fileName = `merged_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    console.log(`[Upload] 嘗試 file.io...`);
+    const formData = new FormData();
+    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    formData.append("file", blob, fileName);
+
+    const response = await fetch("https://file.io", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success && result.link) {
+        console.log(`[Upload] ✅ file.io 上傳成功:`, result.link.substring(0, 80));
+        return result.link;
+      }
+    }
+    console.log(`[Upload] ⚠️ file.io 上傳失敗: ${response.status}`);
+  } catch (fileioError: any) {
+    console.log(`[Upload] ⚠️ file.io 錯誤:`, fileioError.message);
+  }
+
+  // ========================================
+  // 方案 2：0x0.st（免費臨時託管）
+  // ========================================
+  try {
+    console.log(`[Upload] 嘗試 0x0.st...`);
+    const formData = new FormData();
+    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    formData.append("file", blob, fileName);
+
+    const response = await fetch("https://0x0.st", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (response.ok) {
+      const url = await response.text();
+      if (url && url.startsWith("http")) {
+        console.log(`[Upload] ✅ 0x0.st 上傳成功:`, url.trim().substring(0, 80));
+        return url.trim();
+      }
+    }
+    console.log(`[Upload] ⚠️ 0x0.st 上傳失敗: ${response.status}`);
+  } catch (zeroError: any) {
+    console.log(`[Upload] ⚠️ 0x0.st 錯誤:`, zeroError.message);
+  }
+
+  // ========================================
+  // 方案 3：transfer.sh（免費臨時託管）
+  // ========================================
+  try {
+    console.log(`[Upload] 嘗試 transfer.sh...`);
+    const response = await fetch(`https://transfer.sh/${fileName}`, {
+      method: "PUT",
+      body: fileBuffer,
+      headers: {
+        "Content-Type": "video/mp4",
+      },
+    });
+
+    if (response.ok) {
+      const url = await response.text();
+      if (url && url.startsWith("http")) {
+        console.log(`[Upload] ✅ transfer.sh 上傳成功:`, url.trim().substring(0, 80));
+        return url.trim();
+      }
+    }
+    console.log(`[Upload] ⚠️ transfer.sh 上傳失敗: ${response.status}`);
+  } catch (transferError: any) {
+    console.log(`[Upload] ⚠️ transfer.sh 錯誤:`, transferError.message);
+  }
+
+  // ========================================
+  // 方案 4：Manus Storage API（如果配置了）
+  // ========================================
+  try {
+    console.log(`[Upload] 嘗試 Manus Storage...`);
     const { url } = await storagePut(
       `videos/merged/${fileName}`,
       fileBuffer,
@@ -744,14 +826,16 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
     console.log(`[Upload] ⚠️ Manus Storage 上傳失敗:`, storageError.message);
   }
 
-  // 方案 2：嘗試 VectorEngine API（備用）
+  // ========================================
+  // 方案 5：VectorEngine API（最後備用）
+  // ========================================
   try {
+    console.log(`[Upload] 嘗試 VectorEngine...`);
     const apiKey = getNextApiKey();
-    const fileBuffer = fs.readFileSync(localPath);
     const blob = new Blob([fileBuffer], { type: "video/mp4" });
 
     const formData = new FormData();
-    formData.append("file", blob, "merged.mp4");
+    formData.append("file", blob, fileName);
 
     const response = await fetch(`${VIDEO_API_BASE}/upload`, {
       method: "POST",
