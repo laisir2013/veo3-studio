@@ -54,11 +54,18 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "缺少視頻主題" });
       }
       
+      // 🔧 修復：使用 parseFloat 處理小數時長（如 0.27 = 16秒）
+      const durationMinutes = parseFloat(duration) || 3;
+      const totalSeconds = Math.round(durationMinutes * 60);
+      const calculatedSegmentCount = parseInt(segmentCount) || Math.ceil(totalSeconds / 8);
+      
+      console.log(`[生成大綱] 接收參數: duration=${duration}, durationMinutes=${durationMinutes}, totalSeconds=${totalSeconds}, segmentCount=${calculatedSegmentCount}`);
+      
       const result = await generateOutline({
         title,
         language: language || "cantonese",
-        duration: parseInt(duration) || 3,
-        segmentCount: parseInt(segmentCount) || 10,
+        duration: durationMinutes,
+        segmentCount: calculatedSegmentCount,
       });
       
       res.json({ 
