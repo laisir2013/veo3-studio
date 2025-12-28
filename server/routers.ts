@@ -823,9 +823,28 @@ export const appRouter = router({
 
         console.log(`[LongVideo ${taskIdForLog}] 開始合併 ${videoUrls.length} 個片段...`);
 
+        // ✅ 新增：合併前詳細驗證
+        console.log(`\n📊 [LongVideo ${taskIdForLog}] 合併前驗證:`);
+        console.log(`  • 視頻片段數: ${videoUrls.length}`);
+        console.log(`  • 音頻片段數: ${audioUrls.length}`);
+        
+        // 檢查音頻 URL
+        const validAudioUrls = audioUrls.filter(url => url && url.startsWith("http"));
+        const missingAudioCount = audioUrls.length - validAudioUrls.length;
+        
+        if (missingAudioCount > 0) {
+          console.warn(`  ⚠️ 警告: ${missingAudioCount} 個片段缺少有效的音頻 URL`);
+        }
+        
+        console.log(`  • 有效音頻片段: ${validAudioUrls.length}/${audioUrls.length}`);
+        console.log(`  • 背景音樂類型: ${task?.bgmType || "none"}`);
+        console.log(`  • 配音音量: ${input.narrationVolume}%`);
+        console.log(`  • 背景音樂音量: ${input.bgmVolume}%`);
+        console.log(`  • 原視頻音量: ${input.originalVolume}%`);
+
         try {
           // 調用視頻合併服務
-          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${audioUrls.filter(u => u).length}`);
+          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${validAudioUrls.length}`);
           const mergeResult = await mergeVideos({
             videoUrls: videoUrls,
             audioUrls: audioUrls, // ✅ 新增：傳遞旁白音頻 URL
@@ -2011,15 +2030,35 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             }
             
             const voiceActorId = task.voiceActorId || 'default';
-            const audioUrl = await generateSpeech(
-              narrationText,
-              voiceActorId,
-              (task.language || 'cantonese') as any
-            );
+            let audioUrl = "";
+            
+            try {
+              audioUrl = await generateSpeech(
+                narrationText,
+                voiceActorId,
+                (task.language || 'cantonese') as any
+              );
+              
+              // ✅ 驗證音頻 URL
+              if (!audioUrl || !audioUrl.startsWith("http")) {
+                console.warn(`[LongVideo ${taskId}] ⚠️ 片段 ${segment.id} 音頻 URL 無效: ${audioUrl}`);
+                audioUrl = "";
+              } else {
+                console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 音頻生成成功: ${audioUrl}`);
+              }
+            } catch (audioError: any) {
+              console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻生成失敗:`, audioError.message);
+              // 不拋出錯誤，繼續處理（允許沒有旁白的視頻）
+              audioUrl = "";
+            }
             
             console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 生成完成 (類型: ${mediaType})`);
             console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 視頻/圖片: ${videoUrl}`);
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻: ${audioUrl}`);
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻: ${audioUrl || "(無)"}`);
+            
+            // ✅ 新增：記錄音頻生成統計
+            const audioGenerated = audioUrl ? 1 : 0;
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻狀態: ${audioGenerated ? "✅ 已生成" : "⚠️ 未生成"}`);
             
             // 更新片段狀態（使用實際生成的 URL）
             updateSegment(taskId, segment.id, {

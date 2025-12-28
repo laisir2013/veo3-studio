@@ -415,6 +415,31 @@ async function tryLocalFFmpegMerge(
 
     console.log(`[LocalFFmpeg] ✅ 成功標準化 ${normalizedPaths.length} 個視頻`);
 
+    // ✅ 新增：步驟 2.5 - 下載背景音樂
+    console.log(`[LocalFFmpeg] 🎵 步驟 2.5: 下載背景音樂`);
+    let bgmPath = "";
+    if (bgmType !== "none" && BGM_OPTIONS[bgmType]?.url) {
+      bgmPath = `${tempDir}/bgm.mp3`;
+      console.log(`[LocalFFmpeg] 正在下載背景音樂: ${BGM_OPTIONS[bgmType].name}`);
+      console.log(`[LocalFFmpeg] 背景音樂 URL: ${BGM_OPTIONS[bgmType].url}`);
+      
+      const bgmDownloaded = await downloadVideoWithValidation(
+        BGM_OPTIONS[bgmType].url!,
+        bgmPath,
+        tempDir
+      );
+      
+      if (!bgmDownloaded || !fs.existsSync(bgmPath)) {
+        console.warn(`[LocalFFmpeg] ⚠️ 背景音樂下載失敗，將不使用背景音樂`);
+        bgmPath = "";
+      } else {
+        const bgmStats = fs.statSync(bgmPath);
+        console.log(`[LocalFFmpeg] ✅ 背景音樂已下載: ${(bgmStats.size / 1024).toFixed(2)} KB`);
+      }
+    } else {
+      console.log(`[LocalFFmpeg] ℹ️ 不使用背景音樂 (bgmType: ${bgmType})`);
+    }
+
     // 步驟 3：合併標準化後的視頻
     console.log(`[LocalFFmpeg] 🎬 合併視頻...`);
     const outputPath = `${tempDir}/merged_output.mp4`;
@@ -425,24 +450,63 @@ async function tryLocalFFmpegMerge(
     fs.writeFileSync(listPath, listContent);
     console.log(`[LocalFFmpeg] 📝 Concat 列表:\n${listContent}`);
 
-    // 使用重編碼合併（最穩定）
-    const mergeCmd = [
-      "ffmpeg", "-y",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", `"${listPath}"`,
-      "-c:v", NORMALIZE_CONFIG.videoCodec,
-      "-preset", NORMALIZE_CONFIG.preset,
-      "-crf", String(NORMALIZE_CONFIG.crf),
-      "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
-      "-r", String(NORMALIZE_CONFIG.fps),
-      "-c:a", NORMALIZE_CONFIG.audioCodec,
-      "-b:a", NORMALIZE_CONFIG.audioBitrate,
-      "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
-      "-ac", String(NORMALIZE_CONFIG.audioChannels),
-      "-movflags", "+faststart",
-      `"${outputPath}"`
-    ].join(" ");
+    // ✅ 修復：根據是否有背景音樂選擇不同的合併命令
+    let mergeCmd: string;
+    
+    if (bgmPath && fs.existsSync(bgmPath)) {
+      // ========== 有背景音樂：混合視頻音軌和背景音樂 ==========
+      console.log(`[LocalFFmpeg] 🎵 合併模式: 視頻音軌 + 背景音樂 (音量: ${bgmVolume}%)`);
+      
+      const bgmVol = bgmVolume / 100;
+      
+      mergeCmd = [
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", `"${listPath}"`,              // [0] 合併後的視頻
+        "-stream_loop", "-1",                // 循環播放背景音樂
+        "-i", `"${bgmPath}"`,                // [1] 背景音樂
+        "-filter_complex",
+        // 混合視頻原音軌和背景音樂
+        `"[0:a]volume=1.0[a0];[1:a]volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+        "-map", "0:v",                       // 映射視頻
+        "-map", '"[aout]"',                  // 映射混合後的音頻
+        "-c:v", NORMALIZE_CONFIG.videoCodec,
+        "-preset", NORMALIZE_CONFIG.preset,
+        "-crf", String(NORMALIZE_CONFIG.crf),
+        "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
+        "-r", String(NORMALIZE_CONFIG.fps),
+        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-b:a", NORMALIZE_CONFIG.audioBitrate,
+        "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        "-ac", String(NORMALIZE_CONFIG.audioChannels),
+        "-movflags", "+faststart",
+        "-shortest",                         // 以最短流為準
+        `"${outputPath}"`
+      ].join(" ");
+      
+    } else {
+      // ========== 無背景音樂：原有邏輯 ==========
+      console.log(`[LocalFFmpeg] 📹 合併模式: 僅視頻音軌`);
+      
+      mergeCmd = [
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", `"${listPath}"`,
+        "-c:v", NORMALIZE_CONFIG.videoCodec,
+        "-preset", NORMALIZE_CONFIG.preset,
+        "-crf", String(NORMALIZE_CONFIG.crf),
+        "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
+        "-r", String(NORMALIZE_CONFIG.fps),
+        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-b:a", NORMALIZE_CONFIG.audioBitrate,
+        "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        "-ac", String(NORMALIZE_CONFIG.audioChannels),
+        "-movflags", "+faststart",
+        `"${outputPath}"`
+      ].join(" ");
+    }
 
     console.log(`[LocalFFmpeg] 執行合併命令...`);
     
