@@ -1845,9 +1845,19 @@ Total: ${segmentCount} segments of 8 seconds each`;
 
               {mergedVideoUrl ? (
                 <div className="space-y-3">
+                  {/* 合併成功提示框 */}
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span className="font-medium">視頻合併成功！</span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      已將 {segments.filter(s => s.status === "completed").length} 個片段合併為完整視頻
+                    </p>
+                  </div>
                   <video
                     src={mergedVideoUrl}
-                    className="w-full aspect-video rounded-lg"
+                    className="w-full aspect-video rounded-lg border border-zinc-700"
                     controls
                   />
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -1951,6 +1961,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   <Button
                     className="mt-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
                     onClick={() => {
+                      // 🔧 修復：先清除 LocalStorage，避免刷新後恢復舊狀態
+                      clearSavedState();
+                      
                       // 重置所有狀態
                       setCurrentStep(1);
                       setTopic("");
@@ -1962,6 +1975,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       setMergedVideoUrl(null);
                       setSeoResult(null);
                       setTaskId(null);
+                      setSubtitles([]);
                       setStepStatuses({
                         1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
                         6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
