@@ -597,7 +597,7 @@ export const appRouter = router({
     // 計算片段和批次數量
     calculate: publicProcedure
       .input(z.object({
-        durationMinutes: z.number().min(1).max(60),
+        durationMinutes: z.number().min(0.1).max(60), // 允許最小 6 秒 (0.1 分鐘)
       }))
       .query(({ input }) => {
         const totalSegments = calculateSegmentCount(input.durationMinutes);
@@ -615,7 +615,7 @@ export const appRouter = router({
     // 創建長視頻生成任務 (暫時改為 public 以便測試)
     create: publicProcedure
       .input(z.object({
-        durationMinutes: z.number().min(1).max(60),
+        durationMinutes: z.number().min(0.1).max(60), // 允許最小 6 秒 (0.1 分鐘)
         story: z.string().min(5, "故事至少需要 5 個字符"),
         characterDescription: z.string().optional(),
         visualStyle: z.string().optional(),
