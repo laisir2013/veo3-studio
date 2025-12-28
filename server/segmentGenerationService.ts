@@ -18,6 +18,51 @@ export interface GenerateSegmentsResult {
   apiProviderName?: string;
 }
 
+// ✅ 新增：強制截斷旁白的輔助函數
+function truncateNarration(narration: string, language: string, maxLength: number = 20): string {
+  if (language === 'english') {
+    // 英文按單詞數截斷
+    const words = narration.split(/\s+/);
+    if (words.length <= maxLength) return narration;
+    
+    // 截斷到 maxLength 個單詞，並確保句子完整
+    let truncated = words.slice(0, maxLength).join(' ');
+    // 如果最後不是句號，加上省略號
+    if (!truncated.endsWith('.') && !truncated.endsWith('!') && !truncated.endsWith('?')) {
+      truncated = truncated.replace(/[,;:]$/, '') + '.';
+    }
+    console.log(`[truncateNarration] 英文旁白從 ${words.length} 個單詞截斷到 ${maxLength} 個單詞`);
+    return truncated;
+  } else {
+    // 中文按字數截斷
+    // 移除標點符號計算實際字數
+    const pureText = narration.replace(/[，。！？、；：「」『』（）\s]/g, '');
+    if (pureText.length <= maxLength) return narration;
+    
+    // 截斷中文，保留標點符號的比例
+    let charCount = 0;
+    let truncateIndex = 0;
+    for (let i = 0; i < narration.length; i++) {
+      const char = narration[i];
+      if (!/[，。！？、；：「」『』（）\s]/.test(char)) {
+        charCount++;
+      }
+      if (charCount >= maxLength) {
+        truncateIndex = i + 1;
+        break;
+      }
+    }
+    
+    let truncated = narration.slice(0, truncateIndex);
+    // 確保結尾有標點
+    if (!/[。！？]$/.test(truncated)) {
+      truncated = truncated.replace(/[，、；：]$/, '') + '。';
+    }
+    console.log(`[truncateNarration] 中文旁白從 ${pureText.length} 個字截斷到 ${maxLength} 個字`);
+    return truncated;
+  }
+}
+
 export async function generateSegments(params: GenerateSegmentsParams): Promise<GenerateSegmentsResult> {
   const { title, outline, language, segmentCount } = params;
 
@@ -74,9 +119,11 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
   };
 
   // ✅ 修復：旁白字數要求（大幅縮短，語速要慢，留出充足停頓）
+  // 8秒影片，約 2 字/秒，所以最多 16 個字
+  const maxNarrationLength = 16;
   const narrationLength = language === 'english' 
-    ? '15-20個英文單詞（約 2 words/秒，語速要慢）' 
-    : '15-20個中文字（約 2 字/秒，語速要慢）';
+    ? '12-16個英文單詞（約 2 words/秒，語速要慢）' 
+    : '12-16個中文字（約 2 字/秒，語速要慢）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
@@ -88,19 +135,20 @@ ${languagePrompt[language]}
 
 【旁白字數要求 - 極其重要】
 - 每個片段的旁白只能有 ${narrationLength}
+- ⚠️ 絕對不能超過 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
 - 語速要慢，留出充足的停頓時間
 - 不要說太多，簡潔有力最重要
 - 每個字都要有價值，不要廢話
 
 【旁白風格要求】
 ${language === 'cantonese' ? 
-`粵語示例（18字）：「今日我哋嚟傾下，點解有人賺錢咁輕鬆？」✅
+`粵語示例（15字）：「今日我哋嚟傾下，點解有人賺錢咁輕鬆？」✅
 錯誤示例（30字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢呢？」❌ 太長了！` 
 : language === 'mandarin' ? 
-`普通話示例（18字）：「今天我們來聊聊，為什麼有人賺錢輕鬆？」✅
+`普通話示例（15字）：「今天我們來聊聊，為什麼有人賺錢輕鬆？」✅
 錯誤示例（30字）：「今天我們來聊一個非常有趣的話題，為什麼有些人能輕鬆賺錢？」❌ 太長了！`
-: `English Example (18 words): "Today, let's explore why some people make money so easily." ✅
-Wrong Example (35 words): "Today, we're diving into a fascinating question: why do some people make money so easily? Let's explore the key factors." ❌ Too long!`}
+: `English Example (15 words): "Today, let's explore why some people make money easily." ✅
+Wrong Example (30 words): "Today, we're diving into a fascinating question about why some people make money so easily." ❌ Too long!`}
 
 【場景描述要求】
 - 要具體、視覺化，便於 AI 理解並生成畫面
@@ -117,7 +165,7 @@ Wrong Example (35 words): "Today, we're diving into a fascinating question: why 
 - 旁白要自然流暢，適合朗讀
 
 ⚠️ 最後檢查清單：
-✅ 每個片段的旁白是否只有 ${narrationLength}？不能超過！
+✅ 每個片段的旁白是否只有 ${narrationLength}？絕對不能超過 ${maxNarrationLength}！
 ✅ 粵語是否使用了「係」「唔」「嘅」「咦」「啲」等詞彙？
 ✅ 普通話是否使用了標準書面語？
 ✅ 英文是否自然流暢？
@@ -130,7 +178,7 @@ ${outline}
 
 請為這個視頻生成 ${segmentCount} 個片段的內容。每個片段8秒。
 
-⚠️ 記住：每個片段的旁白只能有 ${narrationLength}，不能超過！語速要慢！
+⚠️ 記住：每個片段的旁白只能有 ${narrationLength}，絕對不能超過 ${maxNarrationLength} 個字/單詞！語速要慢！
 
 請以 JSON 格式返回，格式如下：
 {
@@ -163,15 +211,26 @@ ${outline}
       throw new Error("LLM 返回格式錯誤：缺少 segments 數組");
     }
 
-    // 驗證並清理數據
+    // 驗證並清理數據，✅ 新增：強制截斷過長的旁白
     const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => {
-      const narration = seg.narration || `片段 ${index + 1} 的旁白內容`;
+      let narration = seg.narration || `片段 ${index + 1} 的旁白內容`;
       
-      // 記錄旁白字數以便調試
-      const wordCount = language === 'english' 
+      // 記錄原始旁白字數
+      const originalWordCount = language === 'english' 
         ? narration.split(/\s+/).length 
-        : narration.length;
-      console.log(`[generateSegments] 片段 ${index + 1} 旁白字數: ${wordCount} ${language === 'english' ? 'words' : '字'}`);
+        : narration.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
+      
+      // ✅ 強制截斷過長的旁白
+      if (originalWordCount > maxNarrationLength) {
+        console.log(`[generateSegments] ⚠️ 片段 ${index + 1} 旁白過長 (${originalWordCount} ${language === 'english' ? 'words' : '字'})，正在截斷...`);
+        narration = truncateNarration(narration, language, maxNarrationLength);
+      }
+      
+      // 記錄最終旁白字數
+      const finalWordCount = language === 'english' 
+        ? narration.split(/\s+/).length 
+        : narration.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
+      console.log(`[generateSegments] 片段 ${index + 1} 最終旁白字數: ${finalWordCount} ${language === 'english' ? 'words' : '字'}`);
       
       return {
         description: seg.description || `片段 ${index + 1} 的場景描述`,
@@ -185,10 +244,10 @@ ${outline}
       segments.push({
         description: `延續上一個場景，展示更多細節`,
         narration: language === 'cantonese' 
-          ? `繼續呢個故事，我哋深入了解下。`
+          ? `繼續呢個故事，深入了解下。`
           : language === 'mandarin'
-          ? `繼續這個故事，我們深入了解一下。`
-          : `Let's continue and explore further.`,
+          ? `繼續這個故事，深入了解。`
+          : `Let's continue exploring.`,
       });
     }
 

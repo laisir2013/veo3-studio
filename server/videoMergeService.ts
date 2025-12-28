@@ -31,13 +31,14 @@ const NORMALIZE_CONFIG = {
 };
 
 // 背景音樂選項
+// ✅ 修復：更新為有效的 SoundHelix 音樂 URL（免費、可直接訪問）
 export const BGM_OPTIONS = {
   none: { name: "無背景音樂", url: null },
-  cinematic: { name: "電影感", url: "https://cdn.pixabay.com/audio/2024/11/04/audio_4956b4edd1.mp3" },
-  emotional: { name: "感人", url: "https://cdn.pixabay.com/audio/2024/02/14/audio_8f506e3e0f.mp3" },
-  upbeat: { name: "歡快", url: "https://cdn.pixabay.com/audio/2024/09/12/audio_6e1d0b3a3a.mp3" },
-  dramatic: { name: "戲劇性", url: "https://cdn.pixabay.com/audio/2024/04/24/audio_36e7a0e4e4.mp3" },
-  peaceful: { name: "平靜", url: "https://cdn.pixabay.com/audio/2024/08/27/audio_4a1b2c3d4e.mp3" },
+  cinematic: { name: "電影感", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
+  emotional: { name: "感人", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
+  upbeat: { name: "歡快", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+  dramatic: { name: "戲劇性", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
+  peaceful: { name: "平靜", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" },
 } as const;
 
 export type BgmType = keyof typeof BGM_OPTIONS;

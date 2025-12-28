@@ -1,6 +1,8 @@
 /**
  * SUNO AI 音樂生成服務
  * 使用 VectorEngine API 生成背景音樂
+ * 
+ * ✅ 修復：更新預設音樂 URL 為有效的 SoundHelix 音樂
  */
 
 import { getNextApiKey, API_ENDPOINTS } from "./videoConfig";
@@ -158,25 +160,26 @@ export async function generateSunoMusic(
 
 /**
  * 備用方案：使用預設音樂 URL
+ * ✅ 修復：更新為有效的 SoundHelix 音樂 URL（免費、可直接訪問）
  */
 async function fallbackToPresetMusic(style: MusicStyle): Promise<MusicGenerationResult> {
-  // 預設音樂 URL（來自 Pixabay 免費音樂庫）
+  // ✅ 更新：使用 SoundHelix 提供的免費音樂（已驗證可用）
   const PRESET_MUSIC: Record<MusicStyle, string> = {
-    cinematic: "https://cdn.pixabay.com/audio/2024/11/04/audio_4956b4edd1.mp3",
-    emotional: "https://cdn.pixabay.com/audio/2024/02/14/audio_8f506e3e0f.mp3",
-    upbeat: "https://cdn.pixabay.com/audio/2024/09/12/audio_6e1d0b3a3a.mp3",
-    dramatic: "https://cdn.pixabay.com/audio/2024/04/24/audio_36e7a0e4e4.mp3",
-    peaceful: "https://cdn.pixabay.com/audio/2024/08/27/audio_4a1b2c3d4e.mp3",
-    romantic: "https://cdn.pixabay.com/audio/2024/03/15/audio_2b3c4d5e6f.mp3",
-    adventure: "https://cdn.pixabay.com/audio/2024/05/20/audio_7f8g9h0i1j.mp3",
-    mystery: "https://cdn.pixabay.com/audio/2024/06/10/audio_3k4l5m6n7o.mp3",
-    comedy: "https://cdn.pixabay.com/audio/2024/07/25/audio_8p9q0r1s2t.mp3",
-    horror: "https://cdn.pixabay.com/audio/2024/10/31/audio_4u5v6w7x8y.mp3",
+    cinematic: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+    emotional: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+    upbeat: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+    dramatic: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+    peaceful: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3",
+    romantic: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",
+    adventure: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3",
+    mystery: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
+    comedy: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3",
+    horror: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3",
   };
 
   const styleConfig = MUSIC_STYLES[style];
   
-  console.log(`[SUNO] 使用預設音樂: ${style}`);
+  console.log(`[SUNO] 使用預設音樂: ${style} -> ${PRESET_MUSIC[style]}`);
   
   return {
     success: true,
