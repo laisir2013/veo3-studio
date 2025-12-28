@@ -10,6 +10,7 @@
  */
 
 import { getNextApiKey, API_ENDPOINTS, RETRY_CONFIG } from "./videoConfig";
+import { storagePut } from "./storage";
 
 const VIDEO_API_BASE = API_ENDPOINTS.vectorEngine;
 
@@ -721,15 +722,31 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
 }
 
 /**
- * 上傳合併後的視頻
+ * 上傳合併後的視頻 - 使用 Manus Storage API
  */
 async function uploadMergedVideo(localPath: string): Promise<string | null> {
+  const fs = await import("fs");
+  
+  console.log(`[Upload] 📤 開始上傳合併後的視頻...`);
+
+  // 方案 1：使用 Manus Storage API（推薦）
   try {
-    const fs = await import("fs");
+    const fileBuffer = fs.readFileSync(localPath);
+    const fileName = `merged_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
+    const { url } = await storagePut(
+      `videos/merged/${fileName}`,
+      fileBuffer,
+      "video/mp4"
+    );
+    console.log(`[Upload] ✅ Manus Storage 上傳成功:`, url.substring(0, 80));
+    return url;
+  } catch (storageError: any) {
+    console.log(`[Upload] ⚠️ Manus Storage 上傳失敗:`, storageError.message);
+  }
+
+  // 方案 2：嘗試 VectorEngine API（備用）
+  try {
     const apiKey = getNextApiKey();
-
-    console.log(`[Upload] 📤 開始上傳...`);
-
     const fileBuffer = fs.readFileSync(localPath);
     const blob = new Blob([fileBuffer], { type: "video/mp4" });
 
@@ -744,16 +761,16 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
 
     if (response.ok) {
       const result = await response.json();
-      console.log(`[Upload] ✅ 上傳成功:`, result.url?.substring(0, 80));
+      console.log(`[Upload] ✅ VectorEngine 上傳成功:`, result.url?.substring(0, 80));
       return result.url || null;
     }
-
-    console.log(`[Upload] ❌ 上傳失敗: ${response.status}`);
-    return null;
-  } catch (error: any) {
-    console.log(`[Upload] ❌ 上傳錯誤:`, error.message);
-    return null;
+    console.log(`[Upload] ⚠️ VectorEngine 上傳失敗: ${response.status}`);
+  } catch (apiError: any) {
+    console.log(`[Upload] ⚠️ VectorEngine API 錯誤:`, apiError.message);
   }
+
+  console.log(`[Upload] ❌ 所有上傳方式均失敗`);
+  return null;
 }
 
 /**
