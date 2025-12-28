@@ -1948,6 +1948,31 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   <p className="text-sm text-zinc-400 mt-1">
                     您已完成所有 15 個步驟，視頻已準備好發布
                   </p>
+                  <Button
+                    className="mt-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                    onClick={() => {
+                      // 重置所有狀態
+                      setCurrentStep(1);
+                      setTopic("");
+                      setSelectedLanguage("cantonese");
+                      setSelectedVoiceActor(null);
+                      setStoryOutline("");
+                      setSegments([]);
+                      setVideoTitle("");
+                      setMergedVideoUrl(null);
+                      setSeoResult(null);
+                      setTaskId(null);
+                      setStepStatuses({
+                        1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
+                        6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
+                        11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
+                      });
+                      toast.success("已重置，可以開始新任務！");
+                    }}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    重新開始新任務
+                  </Button>
                 </div>
               )}
             </div>
