@@ -679,23 +679,32 @@ export default function WorkflowPage() {
     toast.info(`正在重新生成第 ${segmentId} 段視頻...`);
     
     try {
-      const response = await fetch('/api/regenerate-segment', {
+      // 使用正確的 tRPC API 路徑
+      const response = await fetch('/api/trpc/video.regenerateSegment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          taskId,
-          segmentId,
-          type: "video",
+          json: {
+            taskId,
+            segmentId,
+            regenerateType: "video",
+          }
         }),
       });
       
       const data = await response.json();
-      if (data.success) {
-        toast.success("重新生成請求已提交！");
+      if (data.result?.data?.json?.success) {
+        toast.success("重新生成請求已提交！請稍候...");
+        // 重新獲取任務狀態
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
       } else {
-        toast.error("重新生成失敗：" + data.error);
+        const errorMsg = data.result?.data?.json?.error || data.error?.message || "未知錯誤";
+        toast.error("重新生成失敗：" + errorMsg);
       }
     } catch (error: any) {
+      console.error('[handleRegenerateFailedSegment] Error:', error);
       toast.error("重新生成失敗：" + error.message);
     }
   };
