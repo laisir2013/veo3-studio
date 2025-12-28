@@ -74,6 +74,28 @@ export interface MergeResult {
   message?: string;
 }
 
+/**
+ * 防回歸 Guard：確保合併結果的語義一致性
+ * - success=true → videoUrl 必須存在
+ * - success=false → videoUrl 必須為 undefined，segmentUrls 必須存在
+ */
+function assertMergeResponse(r: MergeResult): void {
+  if (r.success) {
+    if (!r.videoUrl) {
+      console.error("[MergeGuard] ⚠️ Invariant violated: success=true but videoUrl missing", r);
+      throw new Error("Invariant violated: success=true but videoUrl missing");
+    }
+  } else {
+    if (r.videoUrl) {
+      console.error("[MergeGuard] ⚠️ Invariant violated: success=false but videoUrl is set", r);
+      throw new Error("Invariant violated: success=false but videoUrl is set");
+    }
+    if (!r.segmentUrls || r.segmentUrls.length === 0) {
+      console.warn("[MergeGuard] ⚠️ Warning: success=false but no segmentUrls provided", r);
+    }
+  }
+}
+
 // 合併統計
 interface MergeStats {
   cloudAttempts: number;
@@ -150,7 +172,9 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
   // 如果只有一個視頻且不需要處理，直接返回
   if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none") {
     console.log(`[VideoMerge] 只有一個視頻，直接返回`);
-    return { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
+    const result: MergeResult = { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
+    assertMergeResponse(result);
+    return result;
   }
 
   // 第一層：雲端合併
@@ -158,7 +182,9 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     const cloudResult = await tryCloudMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (cloudResult.success) {
       console.log(`[VideoMerge] ✅ 雲端合併成功`);
-      return { ...cloudResult, mode: "cloud" };
+      const result: MergeResult = { ...cloudResult, mode: "cloud" };
+      assertMergeResponse(result);
+      return result;
     }
     console.log(`[VideoMerge] ⚠️ 雲端合併失敗: ${cloudResult.error}`);
   } catch (error) {
@@ -170,7 +196,9 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
-      return { ...localResult, mode: "local" };
+      const result: MergeResult = { ...localResult, mode: "local" };
+      assertMergeResponse(result);
+      return result;
     }
     console.log(`[VideoMerge] ⚠️ 本地 FFmpeg 合併失敗: ${localResult.error}`);
   } catch (error) {
@@ -180,7 +208,9 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
   // 第三層：緊急模式
   console.log(`[VideoMerge] 🚨 啟動緊急模式`);
   mergeStats.emergencyActivations++;
-  return emergencyMode(validVideoUrls, narrations);
+  const emergencyResult = emergencyMode(validVideoUrls, narrations);
+  assertMergeResponse(emergencyResult);
+  return emergencyResult;
 }
 
 /**
