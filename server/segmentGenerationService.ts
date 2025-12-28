@@ -21,26 +21,107 @@ export interface GenerateSegmentsResult {
 export async function generateSegments(params: GenerateSegmentsParams): Promise<GenerateSegmentsResult> {
   const { title, outline, language, segmentCount } = params;
 
-  // 根據語言設置提示詞
+  // ✅ 修復：強化語言風格差異
   const languagePrompt = {
-    cantonese: "請使用粵語（廣東話）撰寫旁白文字，語氣自然口語化。",
-    mandarin: "請使用普通話撰寫旁白文字，語氣自然流暢。",
-    english: "Please write the narration in natural, conversational English.",
-    clone: "請使用粵語（廣東話）撰寫旁白文字，語氣自然口語化。",
+    cantonese: `請使用地道粵語口語撰寫旁白：
+
+【必須使用的粵語詞彙】
+係、唔、嘅、咗、啲、嚟、嗰、點解、咩、邊度、好似、唔該、冇、嘢、我哋、佢哋
+
+【語氣】要像香港 YouTuber 講解咁自然
+
+【示例】
+✅ 正確：「今日我哋嚟傾下呢個話題」
+❌ 錯誤：「今天我們來討論這個話題」
+
+✅ 正確：「呢樣嘢真係好正」
+❌ 錯誤：「這個東西真的很好」
+
+✅ 正確：「點解會咁嘅呢？」
+❌ 錯誤：「為什麼會這樣呢？」`,
+
+    mandarin: `請使用標準普通話撰寫旁白：
+
+【語言風格】規範的普通話表達，避免方言詞彙
+
+【語氣】像央視主持人或知識類 UP 主
+
+【示例】
+✅ 正確：「今天我們來聊聊這個話題」
+❌ 錯誤：「今日我哋嚟傾下呢個話題」
+
+✅ 正確：「這個東西真的很棒」
+❌ 錯誤：「呢樣嘢真係好正」
+
+✅ 正確：「為什麼會這樣呢？」
+❌ 錯誤：「點解會咁嘅呢？」`,
+
+    english: `Please write in natural, conversational English:
+
+【Style】Professional YouTuber or TED speaker
+
+【Transitions】"Now, let's talk about...", "Here's the thing...", "But wait..."
+
+【Example】
+✅ Good: "Today, we're diving into this fascinating topic"
+❌ Bad: "We will discuss this topic"`,
+
+    clone: `請使用繁體中文撰寫旁白（語音克隆模式）：
+
+【語言風格】自然流暢的繁體中文表達
+
+【語氣】專業講解員或知識類主播`,
   };
+
+  // ✅ 修復：增加旁白字數要求
+  const narrationLength = language === 'english' 
+    ? '60-70個英文單詞（英文語速約 8-9 words/秒）' 
+    : '40-50個中文字（中文語速約 6-7 字/秒）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
-2. 旁白文字（narration）：這個片段的旁白內容，約20-30個字，適合8秒朗讀
+2. 旁白文字（narration）：這個片段的旁白內容，需要 ${narrationLength}
 
 ${languagePrompt[language]}
 
-重要規則：
-- 每個片段的旁白必須控制在20-30個字左右，確保能在8秒內自然朗讀完畢
-- 場景描述要具體、視覺化，便於 AI 理解並生成畫面
+⚠️⚠️⚠️ 重要規則 ⚠️⚠️⚠️
+
+【旁白字數要求】
+- 每個片段的旁白必須控制在 ${narrationLength}
+- 旁白要像 YouTuber 講解、像演講稿一樣豐富有內容
+- 不要太簡短，要填滿整個 8 秒的時間
+- 每個字都要有價值，不要廢話
+
+【旁白風格要求】
+${language === 'cantonese' ? 
+`粵語示例（48字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢，而有啲人就算好努力都好似冇乜進步？其實背後有三個關鍵因素。」✅
+錯誤示例（20字）：「今日嚟傾下點解有人賺錢容易。」❌ 太簡短！` 
+: language === 'mandarin' ? 
+`普通話示例（48字）：「今天我們來聊一個非常有趣的話題，那就是為什麼有些人可以輕鬆賺錢，而有些人即使很努力也似乎沒什麼進步？其實背後有三個關鍵因素。」✅
+錯誤示例（20字）：「今天來聊聊為什麼有人賺錢容易。」❌ 太簡短！`
+: `English Example (65 words): "Today, we're diving into a fascinating topic that everyone's been asking about. Why is it that some people seem to make money effortlessly, while others work incredibly hard but don't see much progress? Well, it turns out there are three key factors at play here, and understanding them could completely change your perspective." ✅
+Wrong Example (15 words): "Today we'll talk about why some people make money easily." ❌ Too short!`}
+
+【場景描述要求】
+- 要具體、視覺化，便於 AI 理解並生成畫面
+- 描述要包含：主體、動作、環境、光線、鏡頭角度
+- 例如：「一位年輕的女性坐在現代化的辦公室裡，面帶微笑地看著電腦屏幕，陽光從落地窗灑進來，鏡頭從側面拍攝」
+
+【連貫性要求】
 - 旁白要連貫，每個片段之間要有邏輯銜接
+- 使用過渡詞：「首先」「接下來」「那麼」「所以」「但是」「因此」
+- 不要在旁白中包含「第X段」「片段X」等編號信息
+
+【格式要求】
 - 不要包含任何標點符號以外的特殊字符
-- 不要在旁白中包含「第X段」「片段X」等編號信息`;
+- 旁白要自然流暢，適合朗讀
+
+⚠️ 最後檢查清單：
+✅ 每個片段的旁白是否有 ${narrationLength}？
+✅ 粵語是否使用了「係」「唔」「嘅」「咗」「啲」等詞彙？
+✅ 普通話是否使用了標準書面語？
+✅ 英文是否自然流暢，像 YouTuber 講解？
+✅ 旁白是否像演講稿一樣豐富，而不是簡短的句子？`;
 
   const userPrompt = `視頻主題：${title}
 
@@ -49,12 +130,14 @@ ${outline}
 
 請為這個視頻生成 ${segmentCount} 個片段的內容。每個片段8秒。
 
+⚠️ 記住：每個片段的旁白需要 ${narrationLength}，要像演講稿一樣豐富！
+
 請以 JSON 格式返回，格式如下：
 {
   "segments": [
     {
-      "description": "場景描述...",
-      "narration": "旁白文字..."
+      "description": "場景描述（詳細的視覺畫面描述）...",
+      "narration": "旁白文字（${narrationLength}）..."
     }
   ]
 }`;
@@ -81,17 +164,31 @@ ${outline}
     }
 
     // 驗證並清理數據
-    const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => ({
-      description: seg.description || `片段 ${index + 1} 的場景描述`,
-      narration: seg.narration || `片段 ${index + 1} 的旁白內容`,
-    }));
+    const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => {
+      const narration = seg.narration || `片段 ${index + 1} 的旁白內容`;
+      
+      // 記錄旁白字數以便調試
+      const wordCount = language === 'english' 
+        ? narration.split(/\s+/).length 
+        : narration.length;
+      console.log(`[generateSegments] 片段 ${index + 1} 旁白字數: ${wordCount} ${language === 'english' ? 'words' : '字'}`);
+      
+      return {
+        description: seg.description || `片段 ${index + 1} 的場景描述`,
+        narration: narration,
+      };
+    });
 
     // 確保返回正確數量的片段
     while (segments.length < segmentCount) {
       const lastIndex = segments.length;
       segments.push({
         description: `延續上一個場景，展示更多細節`,
-        narration: `繼續講述故事的發展`,
+        narration: language === 'cantonese' 
+          ? `繼續講述故事嘅發展，呢個部分會帶你深入了解更多細節，等你可以更加清楚明白成件事嘅來龍去脈。`
+          : language === 'mandarin'
+          ? `繼續講述故事的發展，這個部分會帶你深入了解更多細節，讓你可以更加清楚明白整件事情的來龍去脈。`
+          : `Let's continue exploring this fascinating story and dive deeper into the details. This part will help you understand the full picture and see how everything connects together.`,
       });
     }
 

@@ -74,18 +74,30 @@ export async function fetchWithRetry(
 // 語言配置
 type Language = "cantonese" | "mandarin" | "english";
 
-const LANGUAGE_PROMPTS: Record<Language, { narrationStyle: string; outputLanguage: string }> = {
+const LANGUAGE_PROMPTS: Record<Language, { narrationStyle: string; outputLanguage: string; wordCount: string }> = {
   cantonese: {
-    narrationStyle: "使用地道粵語詞彙如「係」「唔」「嘅」「咡」「啲」「嘶」等，語氣自然口語化",
+    narrationStyle: `使用地道粵語口語：
+必用詞：係（是）、唔（不）、嘅（的）、咗（了）、啲（些）、嚟（來）、嗰（那）、點解（為什麼）、咩（什麼）、冇（沒有）、我哋（我們）、佢哋（他們）
+語氣：要像香港 YouTuber 講解咁自然
+示例：「今日我哋嚟傾下呢個話題」「呢樣嘢真係好正」「點解會咁嘅呢？」`,
     outputLanguage: "粵語（廣東話）",
+    wordCount: "40-50個中文字",
   },
   mandarin: {
-    narrationStyle: "使用標準書面語，正式流暢的表達方式",
+    narrationStyle: `使用標準普通話：
+規範表達：避免方言詞彙，使用「這個」「那個」「我們」「什麼」「為什麼」
+語氣：像央視主持人或知識類 UP 主
+示例：「今天我們來聊聊這個話題」「這個東西真的很棒」「為什麼會這樣呢？」`,
     outputLanguage: "普通話（標準中文）",
+    wordCount: "40-50個中文字",
   },
   english: {
-    narrationStyle: "Natural American English with conversational tone, engaging and clear",
+    narrationStyle: `Natural American English:
+Style: Professional YouTuber or TED speaker
+Transitions: "Now, let's talk about...", "Here's the thing...", "But wait..."
+Example: "Today, we're diving into this fascinating topic"`,
     outputLanguage: "English",
+    wordCount: "60-70 words",
   },
 };
 
@@ -102,12 +114,29 @@ export async function analyzeStory(
   
   const systemPrompt = `你是一個專業的視頻腳本分析師。請將用戶的故事分解為 3-5 個場景，每個場景包含：
 1. 場景描述（用於生成視頻提示詞，必須用英文，應是畫面內容的精確描述）
-2. 旁白腳本（用於語音合成，應是敘事性、連貫性的故事文本，請將旁白分為多個片段，每個片段的長度應控制在 8 秒語音內，約 30-50 個中文字）
+2. 旁白腳本（用於語音合成，應是敘事性、連貫性的故事文本）
 3. 圖片提示詞（用於 Midjourney 生成角色圖片，必須用英文）
 
-重要：
+❗❗❗ 重要要求 ❗❗❗
+
+【旁白字數要求】
+- 每個 8 秒片段需要 ${langConfig.wordCount}
+- 旁白要像 YouTuber 講解、像演講稿一樣豐富
+- 不要太簡短，要填滿整個 8 秒的時間
+
+【語言風格要求】
+${langConfig.narrationStyle}
+
+【場景描述要求】
 - 場景描述 (description) 必須使用英文，應是畫面內容的精確描述
-- 旁白腳本 (narrationSegments) 必須使用${langConfig.outputLanguage}，應是連貫的敘事文本，與畫面描述有區別，並已分段（每段約 8 秒語音長度）
+- 要具體、視覺化，包含：主體、動作、環境、光線、鏡頭角度
+
+【旁白腳本要求】
+- 旁白腳本 (narrationSegments) 必須使用${langConfig.outputLanguage}
+- 應是連貫的敘事文本，與畫面描述有區別
+- 已分段（每段約 8 秒語音長度，${langConfig.wordCount}）
+
+【圖片提示詞要求】
 - 圖片提示詞 (imagePrompt) 必須使用英文
 
 請以 JSON 格式返回，格式如下：
@@ -117,14 +146,19 @@ export async function analyzeStory(
       "id": 1,
       "description": "English scene description for video generation, detailed and vivid",
       "narrationSegments": [
-        { "segmentId": 1, "text": "旁白片段一（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" },
-        { "segmentId": 2, "text": "旁白片段二（必須用${langConfig.outputLanguage}，約 8 秒語音長度）" }
+        { "segmentId": 1, "text": "旁白片段一（必須用${langConfig.outputLanguage}，${langConfig.wordCount}）" },
+        { "segmentId": 2, "text": "旁白片段二（必須用${langConfig.outputLanguage}，${langConfig.wordCount}）" }
       ],
       "imagePrompt": "English image prompt with character features and scene details"
     }
   ],
   "characterPrompt": "English character base image prompt for consistency"
-}`;
+}
+
+❗ 最後檢查：
+✅ 每個旁白片段是否有 ${langConfig.wordCount}？
+✅ 語言風格是否符合要求（粵語用「係」「唔」「嘅」，普通話用標準書面語）？
+✅ 旁白是否像演講稿一樣豐富？`;
 
   const userPrompt = `故事：${story}
 ${characterDescription ? `角色描述：${characterDescription}` : ""}
