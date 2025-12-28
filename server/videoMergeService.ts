@@ -550,10 +550,11 @@ async function normalizeVideo(
 
 /**
  * 第三層：緊急模式
+ * 注意：緊急模式不應設置 success: true，因為合併實際上失敗了
  */
 function emergencyMode(videoUrls: string[], narrations: string[]): MergeResult {
   console.log(`[EmergencyMode] 🚨 緊急模式啟動`);
-  console.log(`[EmergencyMode] 返回 ${videoUrls.length} 個獨立片段`);
+  console.log(`[EmergencyMode] 返回 ${videoUrls.length} 個獨立片段（合併失敗，僅返回原始片段）`);
 
   const validUrls = videoUrls.filter(url => url && url.startsWith("http"));
 
@@ -561,12 +562,14 @@ function emergencyMode(videoUrls: string[], narrations: string[]): MergeResult {
     return { success: false, error: "沒有有效的視頻片段", mode: "emergency" };
   }
 
+  // 重要：success: false 表示合併失敗，但仍提供 segmentUrls 讓前端可以下載
   return {
-    success: true,
-    videoUrl: validUrls[0],
+    success: false,
+    videoUrl: undefined, // 不設置 videoUrl，避免前端誤用
     segmentUrls: validUrls,
     mode: "emergency",
-    message: `緊急模式：返回 ${validUrls.length} 個獨立片段。您可以手動下載並合併。`,
+    error: `合併失敗，返回 ${validUrls.length} 個獨立片段。您可以手動下載並合併。`,
+    message: `緊急模式：合併失敗，返回 ${validUrls.length} 個獨立片段。`,
     duration: validUrls.length * 8,
   };
 }
@@ -748,14 +751,12 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
       body: formData,
     });
 
-    if (response.ok) {
-      const url = await response.text();
-      if (url && url.startsWith("https://files.catbox.moe/")) {
-        console.log(`[Upload] ✅ catbox.moe 上傳成功:`, url.trim());
-        return url.trim();
-      }
+    const responseText = await response.text();
+    if (response.ok && responseText.startsWith("https://files.catbox.moe/")) {
+      console.log(`[Upload] ✅ catbox.moe 上傳成功:`, responseText.trim());
+      return responseText.trim();
     }
-    console.log(`[Upload] ⚠️ catbox.moe 上傳失敗: ${response.status}`);
+    console.log(`[Upload] ⚠️ catbox.moe 上傳失敗: ${response.status}, 返回: ${responseText.slice(0, 200)}`);
   } catch (catboxError: any) {
     console.log(`[Upload] ⚠️ catbox.moe 錯誤:`, catboxError.message);
   }
@@ -776,14 +777,12 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
       body: formData,
     });
 
-    if (response.ok) {
-      const url = await response.text();
-      if (url && url.startsWith("https://litter.catbox.moe/")) {
-        console.log(`[Upload] ✅ litterbox 上傳成功:`, url.trim());
-        return url.trim();
-      }
+    const responseText = await response.text();
+    if (response.ok && responseText.startsWith("https://litter.catbox.moe/")) {
+      console.log(`[Upload] ✅ litterbox 上傳成功:`, responseText.trim());
+      return responseText.trim();
     }
-    console.log(`[Upload] ⚠️ litterbox 上傳失敗: ${response.status}`);
+    console.log(`[Upload] ⚠️ litterbox 上傳失敗: ${response.status}, 返回: ${responseText.slice(0, 200)}`);
   } catch (litterboxError: any) {
     console.log(`[Upload] ⚠️ litterbox 錯誤:`, litterboxError.message);
   }
@@ -802,14 +801,19 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
       body: formData,
     });
 
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success && result.link) {
-        console.log(`[Upload] ✅ file.io 上傳成功:`, result.link.substring(0, 80));
-        return result.link;
-      }
+    // 先讀取文本，再判斷是否 JSON
+    const ct = response.headers.get("content-type") || "";
+    const responseText = await response.text();
+    if (ct.includes("application/json")) {
+      try {
+        const result = JSON.parse(responseText);
+        if (result.success && result.link) {
+          console.log(`[Upload] ✅ file.io 上傳成功:`, result.link.substring(0, 80));
+          return result.link;
+        }
+      } catch {}
     }
-    console.log(`[Upload] ⚠️ file.io 上傳失敗: ${response.status}`);
+    console.log(`[Upload] ⚠️ file.io 上傳失敗: ${response.status}, 返回: ${responseText.slice(0, 200)}`);
   } catch (fileioError: any) {
     console.log(`[Upload] ⚠️ file.io 錯誤:`, fileioError.message);
   }
@@ -828,14 +832,12 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
       body: formData,
     });
 
-    if (response.ok) {
-      const url = await response.text();
-      if (url && url.startsWith("http")) {
-        console.log(`[Upload] ✅ 0x0.st 上傳成功:`, url.trim().substring(0, 80));
-        return url.trim();
-      }
+    const responseText = (await response.text()).trim();
+    if (response.ok && responseText.startsWith("http")) {
+      console.log(`[Upload] ✅ 0x0.st 上傳成功:`, responseText.substring(0, 80));
+      return responseText;
     }
-    console.log(`[Upload] ⚠️ 0x0.st 上傳失敗: ${response.status}`);
+    console.log(`[Upload] ⚠️ 0x0.st 上傳失敗: ${response.status}, 返回: ${responseText.slice(0, 200)}`);
   } catch (zeroError: any) {
     console.log(`[Upload] ⚠️ 0x0.st 錯誤:`, zeroError.message);
   }
@@ -853,14 +855,12 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
       },
     });
 
-    if (response.ok) {
-      const url = await response.text();
-      if (url && url.startsWith("http")) {
-        console.log(`[Upload] ✅ transfer.sh 上傳成功:`, url.trim().substring(0, 80));
-        return url.trim();
-      }
+    const responseText = (await response.text()).trim();
+    if (response.ok && responseText.startsWith("http")) {
+      console.log(`[Upload] ✅ transfer.sh 上傳成功:`, responseText.substring(0, 80));
+      return responseText;
     }
-    console.log(`[Upload] ⚠️ transfer.sh 上傳失敗: ${response.status}`);
+    console.log(`[Upload] ⚠️ transfer.sh 上傳失敗: ${response.status}, 返回: ${responseText.slice(0, 200)}`);
   } catch (transferError: any) {
     console.log(`[Upload] ⚠️ transfer.sh 錯誤:`, transferError.message);
   }

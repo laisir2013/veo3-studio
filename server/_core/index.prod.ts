@@ -33,6 +33,13 @@ function serveStatic(app: express.Express) {
 }
 
 async function startServer() {
+  // 環境變量自檢（不打印密鑰內容，只檢查是否存在）
+  console.log(`[EnvCheck] ========== 環境變量檢查 ==========`);
+  console.log(`[EnvCheck] BUILT_IN_FORGE_API_URL present:`, Boolean(process.env.BUILT_IN_FORGE_API_URL));
+  console.log(`[EnvCheck] BUILT_IN_FORGE_API_KEY present:`, Boolean(process.env.BUILT_IN_FORGE_API_KEY));
+  console.log(`[EnvCheck] OPENAI_API_KEY present:`, Boolean(process.env.OPENAI_API_KEY));
+  console.log(`[EnvCheck] ========================================`);
+
   const app = express();
   const server = createServer(app);
   
