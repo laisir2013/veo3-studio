@@ -785,6 +785,9 @@ export default function WorkflowPage() {
 
   // 步驟14：合併視頻（三層容錯機制）
   const handleMergeVideo = async () => {
+    // ✅ 修復：合併前先清空舊狀態，避免緩存汙染
+    setMergedVideoUrl(null);
+    
     // 🔍 GPT 建議：添加詳細的調試日誌
     // 按 id 排序確保順序一致
     const completedSegments = segments
@@ -842,24 +845,31 @@ export default function WorkflowPage() {
 
       console.log("[Merge Result]", result);
 
-      if (result.videoUrl) {
+      // ✅ 修復：只有 success: true 且有 videoUrl 才算成功
+      if (result.success && result.videoUrl) {
         setMergedVideoUrl(result.videoUrl);
         
-        // 檢查是否為緊急模式
-        if (result.mode === "emergency") {
-          toast.warning(
-            `緊急模式：返回 ${result.segmentUrls?.length || 1} 個獨立片段。您可以手動下載並合併。`,
-            { duration: 8000 }
-          );
-          console.log("[EmergencyMode] 片段 URLs:", result.segmentUrls);
-        } else if (result.mode === "local") {
+        // 檢查是否為本地模式
+        if (result.mode === "local") {
           toast.success("視頻合併成功！（本地 FFmpeg）");
         } else {
           toast.success("視頻合併成功！");
         }
-      } else if (result.error) {
-        // 🔧 GPT 建議：顯示具體錯誤信息
-        toast.error(`合併失敗：${result.error}`);
+      } else {
+        // ✅ 修復：合併失敗時不設置 mergedVideoUrl，但顯示片段下載連結
+        const errorMsg = result.error || "合併失敗";
+        const segmentCount = result.segmentUrls?.length || completedVideoUrls.length;
+        
+        // 顯示錯誤信息，並提示用戶可以下載片段
+        if (result.segmentUrls && result.segmentUrls.length > 0) {
+          toast.error(
+            `合併失敗：${errorMsg}。但您可以下載 ${segmentCount} 個獨立片段。`,
+            { duration: 8000 }
+          );
+          console.log("[合併失敗] 片段 URLs:", result.segmentUrls);
+        } else {
+          toast.error(`合併失敗：${errorMsg}`);
+        }
         console.error("[Merge Error]", result.error);
       }
     } catch (error: any) {

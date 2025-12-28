@@ -871,26 +871,26 @@ export const appRouter = router({
         } catch (error: any) {
           console.error(`[LongVideo ${taskIdForLog}] 視頻合併失敗:`, error);
           
-          // 如果合併失敗，嘗試返回第一個視頻作為後備
-          if (videoUrls.length > 0) {
-            console.log(`[LongVideo ${taskIdForLog}] 使用第一個片段作為後備視頻`);
-            if (task) {
-              updateLongVideoTask(task.id, {
-                status: "completed",
-                progress: 100,
-                finalVideoUrl: videoUrls[0],
-                completedAt: new Date().toISOString(),
-              });
-            }
-            return {
-              success: true,
-              videoUrl: videoUrls[0],
-              duration: task?.totalDurationMinutes ? task.totalDurationMinutes * 60 : 180,
-              fallback: true,
-            };
+          // ✅ 修復：合併失敗時返回 success: false，不再假裝成功
+          // 同時返回 segmentUrls 讓前端可以下載片段
+          if (task) {
+            updateLongVideoTask(task.id, {
+              status: "merge_failed",
+              progress: 100,
+              segmentUrls: videoUrls,
+              completedAt: new Date().toISOString(),
+            });
           }
           
-          throw new Error("視頻合併失敗: " + error.message);
+          console.log(`[LongVideo ${taskIdForLog}] 合併失敗，返回 ${videoUrls.length} 個片段供下載`);
+          
+          return {
+            success: false,
+            videoUrl: undefined,
+            segmentUrls: videoUrls || [],
+            error: error.message || "視頻合併失敗",
+            mode: "error",
+          };
         }
       }),
   }),
