@@ -73,10 +73,10 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
 【語氣】專業講解員或知識類主播`,
   };
 
-  // ✅ 修復：增加旁白字數要求
+  // ✅ 修復：旁白字數要求（大幅縮短，語速要慢，留出充足停頓）
   const narrationLength = language === 'english' 
-    ? '60-70個英文單詞（英文語速約 8-9 words/秒）' 
-    : '40-50個中文字（中文語速約 6-7 字/秒）';
+    ? '15-20個英文單詞（約 2 words/秒，語速要慢）' 
+    : '15-20個中文字（約 2 字/秒，語速要慢）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
@@ -86,21 +86,21 @@ ${languagePrompt[language]}
 
 ⚠️⚠️⚠️ 重要規則 ⚠️⚠️⚠️
 
-【旁白字數要求】
-- 每個片段的旁白必須控制在 ${narrationLength}
-- 旁白要像 YouTuber 講解、像演講稿一樣豐富有內容
-- 不要太簡短，要填滿整個 8 秒的時間
+【旁白字數要求 - 極其重要】
+- 每個片段的旁白只能有 ${narrationLength}
+- 語速要慢，留出充足的停頓時間
+- 不要說太多，簡潔有力最重要
 - 每個字都要有價值，不要廢話
 
 【旁白風格要求】
 ${language === 'cantonese' ? 
-`粵語示例（48字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢，而有啲人就算好努力都好似冇乜進步？其實背後有三個關鍵因素。」✅
-錯誤示例（20字）：「今日嚟傾下點解有人賺錢容易。」❌ 太簡短！` 
+`粵語示例（18字）：「今日我哋嚟傾下，點解有人賺錢咁輕鬆？」✅
+錯誤示例（30字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢呢？」❌ 太長了！` 
 : language === 'mandarin' ? 
-`普通話示例（48字）：「今天我們來聊一個非常有趣的話題，那就是為什麼有些人可以輕鬆賺錢，而有些人即使很努力也似乎沒什麼進步？其實背後有三個關鍵因素。」✅
-錯誤示例（20字）：「今天來聊聊為什麼有人賺錢容易。」❌ 太簡短！`
-: `English Example (65 words): "Today, we're diving into a fascinating topic that everyone's been asking about. Why is it that some people seem to make money effortlessly, while others work incredibly hard but don't see much progress? Well, it turns out there are three key factors at play here, and understanding them could completely change your perspective." ✅
-Wrong Example (15 words): "Today we'll talk about why some people make money easily." ❌ Too short!`}
+`普通話示例（18字）：「今天我們來聊聊，為什麼有人賺錢輕鬆？」✅
+錯誤示例（30字）：「今天我們來聊一個非常有趣的話題，為什麼有些人能輕鬆賺錢？」❌ 太長了！`
+: `English Example (18 words): "Today, let's explore why some people make money so easily." ✅
+Wrong Example (35 words): "Today, we're diving into a fascinating question: why do some people make money so easily? Let's explore the key factors." ❌ Too long!`}
 
 【場景描述要求】
 - 要具體、視覺化，便於 AI 理解並生成畫面
@@ -117,11 +117,11 @@ Wrong Example (15 words): "Today we'll talk about why some people make money eas
 - 旁白要自然流暢，適合朗讀
 
 ⚠️ 最後檢查清單：
-✅ 每個片段的旁白是否有 ${narrationLength}？
-✅ 粵語是否使用了「係」「唔」「嘅」「咗」「啲」等詞彙？
+✅ 每個片段的旁白是否只有 ${narrationLength}？不能超過！
+✅ 粵語是否使用了「係」「唔」「嘅」「咦」「啲」等詞彙？
 ✅ 普通話是否使用了標準書面語？
-✅ 英文是否自然流暢，像 YouTuber 講解？
-✅ 旁白是否像演講稿一樣豐富，而不是簡短的句子？`;
+✅ 英文是否自然流暢？
+✅ 旁白是否簡潔有力，而不是太長？`;
 
   const userPrompt = `視頻主題：${title}
 
@@ -130,7 +130,7 @@ ${outline}
 
 請為這個視頻生成 ${segmentCount} 個片段的內容。每個片段8秒。
 
-⚠️ 記住：每個片段的旁白需要 ${narrationLength}，要像演講稿一樣豐富！
+⚠️ 記住：每個片段的旁白只能有 ${narrationLength}，不能超過！語速要慢！
 
 請以 JSON 格式返回，格式如下：
 {
@@ -185,10 +185,10 @@ ${outline}
       segments.push({
         description: `延續上一個場景，展示更多細節`,
         narration: language === 'cantonese' 
-          ? `繼續講述故事嘅發展，呢個部分會帶你深入了解更多細節，等你可以更加清楚明白成件事嘅來龍去脈。`
+          ? `繼續呢個故事，我哋深入了解下。`
           : language === 'mandarin'
-          ? `繼續講述故事的發展，這個部分會帶你深入了解更多細節，讓你可以更加清楚明白整件事情的來龍去脈。`
-          : `Let's continue exploring this fascinating story and dive deeper into the details. This part will help you understand the full picture and see how everything connects together.`,
+          ? `繼續這個故事，我們深入了解一下。`
+          : `Let's continue and explore further.`,
       });
     }
 

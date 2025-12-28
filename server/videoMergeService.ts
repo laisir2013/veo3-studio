@@ -734,7 +734,62 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   console.log(`[Upload] 📤 開始上傳合併後的視頻（${fileSizeMB} MB）...`);
 
   // ========================================
-  // 方案 1：file.io（免費臨時託管，優先使用）
+  // 方案 1：catbox.moe（免費永久託管，最大 200MB，優先使用）
+  // ========================================
+  try {
+    console.log(`[Upload] 嘗試 catbox.moe...`);
+    const formData = new FormData();
+    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    formData.append("reqtype", "fileupload");
+    formData.append("fileToUpload", blob, fileName);
+
+    const response = await fetch("https://catbox.moe/user/api.php", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (response.ok) {
+      const url = await response.text();
+      if (url && url.startsWith("https://files.catbox.moe/")) {
+        console.log(`[Upload] ✅ catbox.moe 上傳成功:`, url.trim());
+        return url.trim();
+      }
+    }
+    console.log(`[Upload] ⚠️ catbox.moe 上傳失敗: ${response.status}`);
+  } catch (catboxError: any) {
+    console.log(`[Upload] ⚠️ catbox.moe 錯誤:`, catboxError.message);
+  }
+
+  // ========================================
+  // 方案 2：litterbox.catbox.moe（免費臨時託管，24小時有效）
+  // ========================================
+  try {
+    console.log(`[Upload] 嘗試 litterbox.catbox.moe...`);
+    const formData = new FormData();
+    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    formData.append("reqtype", "fileupload");
+    formData.append("time", "24h");
+    formData.append("fileToUpload", blob, fileName);
+
+    const response = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (response.ok) {
+      const url = await response.text();
+      if (url && url.startsWith("https://litter.catbox.moe/")) {
+        console.log(`[Upload] ✅ litterbox 上傳成功:`, url.trim());
+        return url.trim();
+      }
+    }
+    console.log(`[Upload] ⚠️ litterbox 上傳失敗: ${response.status}`);
+  } catch (litterboxError: any) {
+    console.log(`[Upload] ⚠️ litterbox 錯誤:`, litterboxError.message);
+  }
+
+  // ========================================
+  // 方案 3：file.io（免費臨時託管）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 file.io...`);
@@ -760,7 +815,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   }
 
   // ========================================
-  // 方案 2：0x0.st（免費臨時託管）
+  // 方案 4：0x0.st（免費臨時託管）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 0x0.st...`);
@@ -786,7 +841,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   }
 
   // ========================================
-  // 方案 3：transfer.sh（免費臨時託管）
+  // 方案 5：transfer.sh（免費臨時託管）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 transfer.sh...`);
@@ -811,7 +866,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   }
 
   // ========================================
-  // 方案 4：Manus Storage API（如果配置了）
+  // 方案 6：Manus Storage API（如果配置了環境變量）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 Manus Storage...`);
@@ -827,7 +882,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   }
 
   // ========================================
-  // 方案 5：VectorEngine API（最後備用）
+  // 方案 7：VectorEngine API（最後備用）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 VectorEngine...`);

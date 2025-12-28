@@ -41,7 +41,7 @@ export async function generateOutline(params: GenerateOutlineParams): Promise<Ge
 - 例如：「呢樣嘢真係好正」而唔係「這個東西真的很好」
 - 例如：「點解會咁嘅呢？」而唔係「為什麼會這樣呢？」
 
-【旁白字數】每個8秒片段需要 40-50 個中文字（粵語語速約 6-7 字/秒）`,
+【旁白字數】每個8秒片段只需要 15-20 個中文字（約 2 字/秒，語速要慢，留出充足停頓）`,
 
     mandarin: `請使用標準普通話撰寫旁白：
 
@@ -56,7 +56,7 @@ export async function generateOutline(params: GenerateOutlineParams): Promise<Ge
 - 例如：「為什麼會這樣呢？」而不是「點解會咁嘅呢？」
 - 使用過渡詞：「首先」「接下來」「那麼」「所以」「因此」
 
-【旁白字數】每個8秒片段需要 40-50 個中文字（普通話語速約 6-7 字/秒）`,
+【旁白字數】每個8秒片段只需要 15-20 個中文字（約 2 字/秒，語速要慢，留出充足停頓）`,
 
     english: `Please write in natural, conversational English:
 
@@ -71,7 +71,7 @@ export async function generateOutline(params: GenerateOutlineParams): Promise<Ge
 - Good: "Here's why this matters to you"
 - Bad: "This is important"
 
-【Word Count】Each 8-second segment needs 60-70 English words (speaking rate: 8-9 words/sec)`,
+【Word Count】Each 8-second segment needs only 15-20 English words (about 2 words/sec, slow pace with pauses)`,
 
     clone: `請使用繁體中文撰寫旁白（語音克隆模式）：
 
@@ -80,7 +80,7 @@ export async function generateOutline(params: GenerateOutlineParams): Promise<Ge
 - 語氣要像專業講解員或知識類主播
 - 可以混合使用書面語和口語，但要自然
 
-【旁白字數】每個8秒片段需要 40-50 個中文字`,
+【旁白字數】每個8秒片段只需要 15-20 個中文字（約 2 字/秒，語速要慢，留出充足停頓）`,
   };
 
   // 根據時長選擇不同的提示詞策略
@@ -112,7 +112,7 @@ ${languagePrompt[language]}
 
 #### 片段1（8秒）
 - 場景描述：詳細的視覺畫面描述，包含主體、動作、環境、光線
-- 旁白：40-50個中文字或60-70個英文單詞，像演講稿一樣豐富
+- 旁白：15-20個中文字或15-20個英文單詞，簡潔有力
 
 #### 片段2（8秒）
 - 場景描述：...
@@ -122,13 +122,13 @@ ${languagePrompt[language]}
 
 ⚠️ 旁白示例：
 ${language === 'cantonese' ? 
-`粵語示例（48字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢，而有啲人就算好努力都好似冇乜進步？」✅
-錯誤示例（20字）：「今日嚟傾下點解有人賺錢容易。」❌ 太簡短！` 
+`粵語示例（18字）：「今日我哋嚟傾下，點解有啲人賺錢咁輕鬆？」✅
+錯誤示例（48字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢，而有啲人就算好努力都好似冇乜進步？」❌ 太長！` 
 : language === 'mandarin' ? 
-`普通話示例（48字）：「今天我們來聊一個非常有趣的話題，那就是為什麼有些人可以輕鬆賺錢，而有些人即使很努力也似乎沒什麼進步？」✅
-錯誤示例（20字）：「今天來聊聊為什麼有人賺錢容易。」❌ 太簡短！`
-: `English Example (65 words): "Today, we're diving into a fascinating topic that everyone's been asking about. Why is it that some people seem to make money effortlessly, while others work incredibly hard but don't see much progress? Well, it turns out there are three key factors at play here." ✅
-Wrong Example (15 words): "Today we'll talk about why some people make money easily." ❌ Too short!`}`;
+`普通話示例（18字）：「今天我們來聊聊，為什麼有人賺錢這麼輕鬆？」✅
+錯誤示例（48字）：「今天我們來聊一個非常有趣的話題，那就是為什麼有些人可以輕鬆賺錢，而有些人即使很努力也似乎沒什麼進步？」❌ 太長！`
+: `English Example (18 words): "Today, let's explore why some people make money so easily, while others struggle." ✅
+Wrong Example (65 words): "Today, we're diving into a fascinating topic that everyone's been asking about. Why is it that some people seem to make money effortlessly, while others work incredibly hard but don't see much progress?" ❌ Too long!`}`;
 
     userPrompt = `視頻主題：${title}
 
@@ -136,8 +136,8 @@ Wrong Example (15 words): "Today we'll talk about why some people make money eas
 1. 這是一個只有 ${totalSeconds} 秒的超短視頻
 2. 只能有 ${segmentCount} 個片段
 3. 每個片段 8 秒
-4. 每個片段的旁白需要 ${language === 'english' ? '60-70個英文單詞' : '40-50個中文字'}
-5. 旁白要像演講稿一樣豐富，不要太簡短！
+4. 每個片段的旁白只需要 ${language === 'english' ? '15-20個英文單詞' : '15-20個中文字'}
+5. 旁白要簡潔有力，不要太長！語速要慢！
 
 請生成一個適合 ${totalSeconds} 秒視頻的簡潔大綱。`;
 
@@ -164,7 +164,7 @@ ${languagePrompt[language]}
 
 #### 開場（約${Math.round(totalSeconds * 0.2)}秒）
 - 場景描述：...
-- 旁白：40-50個中文字或60-70個英文單詞
+- 旁白：15-20個中文字或15-20個英文單詞
 
 #### 主體（約${Math.round(totalSeconds * 0.6)}秒）
 ...
@@ -172,12 +172,12 @@ ${languagePrompt[language]}
 #### 結尾（約${Math.round(totalSeconds * 0.2)}秒）
 ...
 
-⚠️ 每個片段的旁白必須有 ${language === 'english' ? '60-70個英文單詞' : '40-50個中文字'}，像演講稿一樣豐富！`;
+⚠️ 每個片段的旁白只需要 ${language === 'english' ? '15-20個英文單詞' : '15-20個中文字'}，簡潔有力，語速要慢！`;
 
     userPrompt = `視頻主題：${title}
 視頻時長：${totalSeconds} 秒（${segmentCount} 個 8 秒片段）
 
-⚠️ 記住：每個片段的旁白需要 ${language === 'english' ? '60-70個英文單詞' : '40-50個中文字'}！
+⚠️ 記住：每個片段的旁白只需要 ${language === 'english' ? '15-20個英文單詞' : '15-20個中文字'}！語速要慢！
 
 請生成一個適合 ${totalSeconds} 秒視頻的簡潔大綱。
 注意：不要生成超過 ${segmentCount} 個片段的內容！`;
@@ -204,15 +204,15 @@ ${languagePrompt[language]}
 每個部分要有具體的內容描述，不要太籠統。
 
 ⚠️⚠️⚠️ 旁白字數要求 ⚠️⚠️⚠️
-- 每個 8 秒片段的旁白需要 ${language === 'english' ? '60-70個英文單詞' : '40-50個中文字'}
-- 旁白要像 YouTuber 講解、像演講稿一樣豐富有內容
-- 不要太簡短，要填滿整個 8 秒的時間`;
+- 每個 8 秒片段的旁白只需要 ${language === 'english' ? '15-20個英文單詞' : '15-20個中文字'}
+- 旁白要簡潔有力，語速要慢
+- 留出充足的停頓時間，不要說太多`;
 
     userPrompt = `視頻主題：${title}
 視頻時長：${durationDisplay}
 片段數量：${segmentCount} 個片段（每個片段約 8 秒）
 
-⚠️ 記住：每個片段的旁白需要 ${language === 'english' ? '60-70個英文單詞' : '40-50個中文字'}，像演講稿一樣豐富！
+⚠️ 記住：每個片段的旁白只需要 ${language === 'english' ? '15-20個英文單詞' : '15-20個中文字'}！語速要慢！
 
 請為這個視頻生成一個詳細的故事大綱。`;
   }
