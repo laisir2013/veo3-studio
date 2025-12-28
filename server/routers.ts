@@ -837,25 +837,36 @@ export const appRouter = router({
             originalVolume: input.originalVolume,
           });
 
+          // 關鍵結案日誌：打印合併結果結構
+          console.log(`[VideoMerge][Result]`, {
+            success: mergeResult.success,
+            mode: mergeResult.mode,
+            hasVideoUrl: Boolean(mergeResult.videoUrl),
+            segmentCount: mergeResult.segmentUrls?.length ?? 0,
+            error: mergeResult.error?.slice(0, 120),
+          });
+
           // 如果任務存在，更新任務狀態
           if (task) {
             updateLongVideoTask(task.id, {
-              status: "completed",
+              status: mergeResult.success ? "completed" : "merge_failed",
               progress: 100,
-              finalVideoUrl: mergeResult.videoUrl,
+              finalVideoUrl: mergeResult.success ? mergeResult.videoUrl : undefined,
+              segmentUrls: mergeResult.segmentUrls,
               completedAt: new Date().toISOString(),
             });
           }
 
-          console.log(`[LongVideo ${taskIdForLog}] 視頻合併完成: ${mergeResult.videoUrl}`);
+          console.log(`[LongVideo ${taskIdForLog}] 視頻合併${mergeResult.success ? '成功' : '失敗'}: ${mergeResult.videoUrl || '(無合併視頻)'}`);
 
           return {
-            success: true,
-            videoUrl: mergeResult.videoUrl,
+            success: mergeResult.success,
+            videoUrl: mergeResult.success ? mergeResult.videoUrl : undefined,
             duration: mergeResult.duration,
             mode: mergeResult.mode,
             segmentUrls: mergeResult.segmentUrls,
             message: mergeResult.message,
+            error: mergeResult.error,
           };
         } catch (error: any) {
           console.error(`[LongVideo ${taskIdForLog}] 視頻合併失敗:`, error);
@@ -2068,19 +2079,39 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                   subtitleStyle: (task.subtitleStyle || 'none') as any,
                 });
                 
-                const finalVideoUrl = mergeResult.success ? mergeResult.videoUrl : completedSegments[0].videoUrl;
-                console.log(`[LongVideo ${taskId}] 視頻合併完成: ${finalVideoUrl}`);
+                // 關鍵結案日誌：打印合併結果結構
+                console.log(`[VideoMerge][Result]`, {
+                  success: mergeResult.success,
+                  mode: mergeResult.mode,
+                  hasVideoUrl: Boolean(mergeResult.videoUrl),
+                  segmentCount: mergeResult.segmentUrls?.length ?? 0,
+                  error: mergeResult.error?.slice(0, 120),
+                });
+                
+                // 重要修復：只有合併成功時才使用 mergedUrl，否則不設置 finalVideoUrl
+                // 不要用第一個片段的 URL 假裝成合併後的視頻
+                const finalVideoUrl = mergeResult.success ? mergeResult.videoUrl : undefined;
+                const mergeStatus = mergeResult.success ? "completed" : "merge_failed";
+                
+                console.log(`[LongVideo ${taskId}] 視頻合併${mergeResult.success ? '成功' : '失敗'}: ${finalVideoUrl || '(無合併視頻)'}`);
+                console.log(`[LongVideo ${taskId}] 片段 URLs: ${completedSegments.map(s => s.videoUrl?.slice(0, 50)).join(', ')}`);
+                
                 updateLongVideoTask(taskId, {
-                  status: "completed",
+                  status: mergeStatus as any,
                   completedAt: new Date(),
                   finalVideoUrl,
+                  // 新增：即使合併失敗也保存片段 URLs
+                  segmentUrls: completedSegments.map(s => s.videoUrl!),
                 });
                 // 更新歷史記錄
                 await updateHistoryStatus(taskId, {
-                  status: "completed",
+                  status: mergeResult.success ? "completed" : "merge_failed",
                   progress: 100,
                   outputUrls: {
                     finalVideoUrl,
+                    mergeSuccess: mergeResult.success,
+                    mergeMode: mergeResult.mode,
+                    mergeError: mergeResult.error,
                     segments: completedSegments.map(s => ({
                       id: s.id,
                       videoUrl: s.videoUrl,
