@@ -3,13 +3,30 @@
  * 
  * 三層容錯架構：
  * 1. 雲端合併（VectorEngine API 輪換）
- * 2. 本地 FFmpeg 合併（如果可用）
+ * 2. 本地 FFmpeg 合併（標準化後再合併）
  * 3. 緊急模式（返回所有片段視頻，100% 保證有結果）
+ * 
+ * 🔧 修復：使用標準化轉碼後再合併，解決編碼參數不一致問題
  */
 
 import { getNextApiKey, API_ENDPOINTS, RETRY_CONFIG } from "./videoConfig";
 
 const VIDEO_API_BASE = API_ENDPOINTS.vectorEngine;
+
+// 標準化視頻參數（統一規格）
+const NORMALIZE_CONFIG = {
+  width: 1280,
+  height: 720,
+  fps: 30,
+  videoCodec: "libx264",
+  audioCodec: "aac",
+  audioBitrate: "192k",
+  audioSampleRate: 48000,
+  audioChannels: 2,
+  preset: "veryfast",
+  crf: 20,
+  pixelFormat: "yuv420p",
+};
 
 // 背景音樂選項
 export const BGM_OPTIONS = {
@@ -35,16 +52,15 @@ export type SubtitleStyle = keyof typeof SUBTITLE_STYLES;
 
 export interface MergeOptions {
   videoUrls: string[];
-  audioUrls?: string[];      // ✅ 新增：旁白音頻 URL，與 videoUrls 索引對齊
-  narrations?: string[];     // 旁白文字（可選，用於字幕）
+  audioUrls?: string[];
+  narrations?: string[];
   bgmType?: BgmType;
   subtitleStyle?: SubtitleStyle;
   outputFormat?: "mp4" | "webm";
   resolution?: "720p" | "1080p" | "4k";
-  // 音量控制
-  narrationVolume?: number;  // 0-100
-  bgmVolume?: number;        // 0-100
-  originalVolume?: number;   // 0-100
+  narrationVolume?: number;
+  bgmVolume?: number;
+  originalVolume?: number;
 }
 
 export interface MergeResult {
@@ -52,9 +68,8 @@ export interface MergeResult {
   videoUrl?: string;
   duration?: number;
   error?: string;
-  // 新增：緊急模式相關
   mode?: "cloud" | "local" | "emergency";
-  segmentUrls?: string[];  // 緊急模式下返回所有片段
+  segmentUrls?: string[];
   message?: string;
 }
 
@@ -75,6 +90,9 @@ const mergeStats: MergeStats = {
   emergencyActivations: 0,
 };
 
+// 睡眠函數
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * 獲取合併統計信息
  */
@@ -88,7 +106,7 @@ export function getMergeStats(): MergeStats {
 export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
   const {
     videoUrls,
-    audioUrls = [],  // ✅ 新增：旁白音頻 URL
+    audioUrls = [],
     narrations = [],
     bgmType = "none",
     subtitleStyle = "none",
@@ -99,51 +117,33 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     originalVolume = 50,
   } = options;
 
-  // ✅ 新增：記錄旁白音頻狀態
-  const validAudioUrls = audioUrls.filter(url => url && url.startsWith("http"));
-  console.log(`[VideoMerge] 旁白音頻狀態: ${validAudioUrls.length}/${videoUrls.length} 個片段有音頻`);
-
-  if (videoUrls.length === 0) {
-    return { success: false, error: "沒有可合併的視頻" };
-  }
+  console.log(`[VideoMerge] 🎬 開始合併流程`, {
+    videoCount: videoUrls.length,
+    audioCount: audioUrls.filter(u => u).length,
+    timestamp: new Date().toISOString(),
+  });
 
   // 過濾有效的視頻 URL
   const validVideoUrls = videoUrls.filter(url => url && url.startsWith("http"));
   if (validVideoUrls.length === 0) {
+    console.error(`[VideoMerge] ❌ 沒有有效的視頻 URL`);
     return { success: false, error: "沒有有效的視頻 URL" };
   }
 
-  // 🔍 GPT 建議：添加輸入檢查日誌，檢測是否有圖片混入
-  const inputSummary = validVideoUrls.map(url => {
-    const cleanUrl = url.split("?")[0];
-    const ext = cleanUrl.split(".").pop()?.toLowerCase() || "unknown";
-    return { url: url.substring(0, 60) + "...", ext };
-  });
-  console.log("[Merge] 輸入檢查:", JSON.stringify(inputSummary, null, 2));
-  
-  // 檢測圖片格式（jpg, jpeg, png, webp, gif）
+  console.log(`[VideoMerge] ✅ 有效視頻數量: ${validVideoUrls.length}`);
+
+  // 檢測圖片格式
   const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-  const imageUrls = inputSummary.filter(item => imageExtensions.includes(item.ext));
   const videoOnlyUrls = validVideoUrls.filter(url => {
     const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "";
     return !imageExtensions.includes(ext);
   });
-  
-  if (imageUrls.length > 0) {
-    console.log(`[Merge] ⚠️ 警告：檢測到 ${imageUrls.length} 個圖片 URL 混入視頻合成！`);
-    console.log(`[Merge] 圖片 URLs:`, imageUrls);
-    
-    // 如果全部都是圖片，返回錯誤
-    if (videoOnlyUrls.length === 0) {
-      console.log(`[Merge] ❌ 錯誤：所有輸入都是圖片，無法進行視頻合成`);
-      return { 
-        success: false, 
-        error: "所有輸入都是圖片格式，無法進行視頻合成。請確保使用視頻模式生成片段。" 
-      };
-    }
-    
-    // 如果有混合，只使用視頻 URL（跳過圖片）
-    console.log(`[Merge] 📝 將跳過圖片，只合併 ${videoOnlyUrls.length} 個視頻片段`);
+
+  if (videoOnlyUrls.length === 0) {
+    return { 
+      success: false, 
+      error: "所有輸入都是圖片格式，無法進行視頻合成。" 
+    };
   }
 
   // 如果只有一個視頻且不需要處理，直接返回
@@ -152,11 +152,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     return { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
   }
 
-  console.log(`[VideoMerge] 開始合併 ${validVideoUrls.length} 個視頻片段`);
-  console.log(`[VideoMerge] 視頻 URLs:`, validVideoUrls.slice(0, 3).map(u => u.substring(0, 50) + '...'));
-  console.log(`[VideoMerge] 設置: BGM=${bgmType}, 字幕=${subtitleStyle}, 解析度=${resolution}`);
-
-  // 第一層：雲端合併（VectorEngine API 輪換）
+  // 第一層：雲端合併
   try {
     const cloudResult = await tryCloudMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (cloudResult.success) {
@@ -168,7 +164,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     console.log(`[VideoMerge] ⚠️ 雲端合併異常:`, error);
   }
 
-  // 第二層：本地 FFmpeg 合併
+  // 第二層：本地 FFmpeg 合併（標準化後再合併）
   try {
     const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (localResult.success) {
@@ -180,18 +176,18 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     console.log(`[VideoMerge] ⚠️ 本地 FFmpeg 合併異常:`, error);
   }
 
-  // 第三層：緊急模式 - 100% 保證返回結果
+  // 第三層：緊急模式
   console.log(`[VideoMerge] 🚨 啟動緊急模式`);
   mergeStats.emergencyActivations++;
   return emergencyMode(validVideoUrls, narrations);
 }
 
 /**
- * 第一層：雲端合併（VectorEngine API 輪換）
+ * 第一層：雲端合併
  */
 async function tryCloudMerge(
   videoUrls: string[],
-  audioUrls: string[],  // ✅ 新增：旁白音頻 URL
+  audioUrls: string[],
   narrations: string[],
   bgmType: BgmType,
   subtitleStyle: SubtitleStyle,
@@ -203,28 +199,29 @@ async function tryCloudMerge(
 ): Promise<MergeResult> {
   mergeStats.cloudAttempts++;
   
-  // 嘗試多個 API Key
+  console.log(`[CloudMerge] 🌐 開始雲端合併`, {
+    videoCount: videoUrls.length,
+    audioCount: audioUrls.filter(u => u).length,
+    apiBase: VIDEO_API_BASE,
+  });
+  
   const maxRetries = RETRY_CONFIG.maxRetries;
   let lastError = "";
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const apiKey = getNextApiKey();
-      console.log(`[CloudMerge] 嘗試 ${attempt + 1}/${maxRetries}, API Key: ${apiKey.substring(0, 10)}...`);
+      console.log(`[CloudMerge] 嘗試 ${attempt + 1}/${maxRetries}`);
 
-      // 構建合併請求
       const mergeRequest = {
         videos: videoUrls.map((url, index) => ({
           url,
-          audioUrl: audioUrls[index] || null,  // ✅ 新增：旁白音頻 URL
+          audioUrl: audioUrls[index] || null,
           narration: narrations[index] || null,
         })),
         bgm: BGM_OPTIONS[bgmType].url,
         subtitle: SUBTITLE_STYLES[subtitleStyle],
-        output: {
-          format: outputFormat,
-          resolution: resolution,
-        },
+        output: { format: outputFormat, resolution },
         audio: {
           narrationVolume: narrationVolume / 100,
           bgmVolume: bgmVolume / 100,
@@ -232,9 +229,8 @@ async function tryCloudMerge(
         },
       };
 
-      // 調用視頻合併 API
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 秒超時
+      const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 分鐘超時
 
       const response = await fetch(`${VIDEO_API_BASE}/video/merge`, {
         method: "POST",
@@ -248,94 +244,45 @@ async function tryCloudMerge(
 
       clearTimeout(timeoutId);
 
-      console.log(`[CloudMerge] API 響應狀態: ${response.status}`);
+      console.log(`[CloudMerge] API 響應: ${response.status} ${response.statusText}`);
 
       if (response.ok) {
         const result = await response.json();
-        console.log(`[CloudMerge] API 響應:`, JSON.stringify(result).substring(0, 200));
         if (result.url) {
           mergeStats.cloudSuccesses++;
-          return {
-            success: true,
-            videoUrl: result.url,
-            duration: result.duration,
-          };
+          return { success: true, videoUrl: result.url, duration: result.duration };
         }
       }
 
-      // 如果是 429 錯誤，等待後重試
       if (response.status === 429) {
         const delay = RETRY_CONFIG.retryDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
-        console.log(`[CloudMerge] 429 限流，等待 ${delay}ms 後重試`);
+        console.log(`[CloudMerge] 429 限流，等待 ${delay}ms`);
         await sleep(Math.min(delay, RETRY_CONFIG.maxDelay));
         continue;
       }
 
-      // 記錄錯誤響應
-      try {
-        const errorBody = await response.text();
-        console.log(`[CloudMerge] 錯誤響應: ${errorBody.substring(0, 200)}`);
-      } catch {}
-
+      const errorText = await response.text().catch(() => "");
+      console.log(`[CloudMerge] 錯誤響應: ${errorText.substring(0, 200)}`);
       lastError = `API 返回 ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : "未知錯誤";
+    } catch (error: any) {
+      lastError = error.message || "未知錯誤";
       console.log(`[CloudMerge] 錯誤: ${lastError}`);
     }
 
-    // 等待後重試
     if (attempt < maxRetries - 1) {
-      const delay = RETRY_CONFIG.retryDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt);
-      await sleep(Math.min(delay, RETRY_CONFIG.maxDelay));
+      await sleep(RETRY_CONFIG.retryDelay);
     }
-  }
-
-  // 嘗試備用 API：視頻拼接
-  try {
-    console.log(`[CloudMerge] 嘗試備用 API：視頻拼接`);
-    const apiKey = getNextApiKey();
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-    const response = await fetch(`${VIDEO_API_BASE}/video/concat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        videos: videoUrls,
-        transition: "fade",
-        transitionDuration: 0.5,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    console.log(`[CloudMerge] 備用 API 響應狀態: ${response.status}`);
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.url) {
-        mergeStats.cloudSuccesses++;
-        return { success: true, videoUrl: result.url };
-      }
-    }
-  } catch (error) {
-    console.log(`[CloudMerge] 備用 API 失敗: ${error}`);
   }
 
   return { success: false, error: lastError || "雲端合併失敗" };
 }
 
 /**
- * 第二層：本地 FFmpeg 合併
+ * 第二層：本地 FFmpeg 合併（標準化後再合併）
  */
 async function tryLocalFFmpegMerge(
   videoUrls: string[],
-  audioUrls: string[],  // ✅ 新增：旁白音頻 URL
+  audioUrls: string[],
   narrations: string[],
   bgmType: BgmType,
   subtitleStyle: SubtitleStyle,
@@ -346,109 +293,280 @@ async function tryLocalFFmpegMerge(
   originalVolume: number
 ): Promise<MergeResult> {
   mergeStats.localAttempts++;
+  
+  console.log(`[LocalFFmpeg] 🎬 開始本地 FFmpeg 合併（標準化模式）`, {
+    videoCount: videoUrls.length,
+    audioCount: audioUrls.filter(u => u).length,
+  });
+
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
+  const fs = await import("fs");
+
+  // 檢查 FFmpeg
+  const ffmpegAvailable = await checkFFmpegAvailable();
+  if (!ffmpegAvailable) {
+    return { success: false, error: "FFmpeg 不可用" };
+  }
+
+  // 創建臨時目錄
+  const tempDir = `/tmp/veo3-merge-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  
+  try {
+    fs.mkdirSync(tempDir, { recursive: true });
+    console.log(`[LocalFFmpeg] 📁 臨時目錄: ${tempDir}`);
+  } catch (error: any) {
+    console.error(`[LocalFFmpeg] ❌ 無法創建臨時目錄:`, error.message);
+    return { success: false, error: "無法創建臨時目錄" };
+  }
 
   try {
-    // 檢查 FFmpeg 是否可用
-    const ffmpegAvailable = await checkFFmpegAvailable();
-    if (!ffmpegAvailable) {
-      console.log(`[LocalFFmpeg] FFmpeg 不可用`);
-      return { success: false, error: "FFmpeg 不可用" };
-    }
+    // 步驟 1：下載所有視頻
+    console.log(`[LocalFFmpeg] 📥 下載 ${videoUrls.length} 個視頻片段...`);
+    const downloadedPaths: string[] = [];
+    const downloadedAudioPaths: string[] = [];
 
-    console.log(`[LocalFFmpeg] FFmpeg 可用，開始本地合併`);
-
-    // 下載所有視頻到臨時目錄
-    const tempDir = `/tmp/veo3-merge-${Date.now()}`;
-    const downloadedVideoFiles: string[] = [];
-    const downloadedAudioFiles: string[] = [];
-
-    // 下載視頻
     for (let i = 0; i < videoUrls.length; i++) {
       const localPath = `${tempDir}/segment_${i}.mp4`;
       console.log(`[LocalFFmpeg] 下載視頻 ${i + 1}/${videoUrls.length}...`);
-      const downloaded = await downloadVideo(videoUrls[i], localPath);
+      
+      const downloaded = await downloadVideoWithValidation(videoUrls[i], localPath, tempDir);
       if (downloaded) {
-        downloadedVideoFiles.push(localPath);
-      }
-    }
-
-    // ✅ 新增：下載旁白音頻
-    for (let i = 0; i < audioUrls.length; i++) {
-      if (audioUrls[i] && audioUrls[i].startsWith("http")) {
-        const localPath = `${tempDir}/audio_${i}.mp3`;
-        console.log(`[LocalFFmpeg] 下載音頻 ${i + 1}/${audioUrls.length}...`);
-        const downloaded = await downloadVideo(audioUrls[i], localPath);
-        if (downloaded) {
-          downloadedAudioFiles.push(localPath);
-        } else {
-          downloadedAudioFiles.push(""); // 保持索引對齊
-        }
+        downloadedPaths.push(localPath);
       } else {
-        downloadedAudioFiles.push(""); // 無音頻
+        console.warn(`[LocalFFmpeg] ⚠️ 視頻 ${i + 1} 下載失敗，跳過`);
+      }
+
+      // 下載對應的音頻
+      if (audioUrls[i] && audioUrls[i].startsWith("http")) {
+        const audioPath = `${tempDir}/audio_${i}.mp3`;
+        const audioDownloaded = await downloadVideoWithValidation(audioUrls[i], audioPath, tempDir);
+        downloadedAudioPaths.push(audioDownloaded ? audioPath : "");
+      } else {
+        downloadedAudioPaths.push("");
       }
     }
 
-    if (downloadedVideoFiles.length === 0) {
-      return { success: false, error: "無法下載視頻文件" };
+    if (downloadedPaths.length === 0) {
+      return { success: false, error: "無法下載任何視頻文件" };
     }
 
-    console.log(`[LocalFFmpeg] 成功下載 ${downloadedVideoFiles.length} 個視頻, ${downloadedAudioFiles.filter(a => a).length} 個音頻`);
+    console.log(`[LocalFFmpeg] ✅ 成功下載 ${downloadedPaths.length}/${videoUrls.length} 個視頻`);
 
-    // 使用 FFmpeg 合併
-    const outputPath = `${tempDir}/merged.${outputFormat}`;
-    const ffmpegResult = await runFFmpegMerge(downloadedVideoFiles, outputPath, {
-      bgmUrl: BGM_OPTIONS[bgmType].url,
-      audioFiles: downloadedAudioFiles, // ✅ 新增：傳遞旁白音頻文件
-      narrationVolume,
-      bgmVolume,
-      originalVolume,
-      resolution,
-    });
+    // 步驟 2：標準化每個視頻片段
+    console.log(`[LocalFFmpeg] 🔄 標準化視頻片段...`);
+    const normalizedPaths: string[] = [];
 
-    if (ffmpegResult.success && ffmpegResult.outputPath) {
-      // 上傳合併後的視頻
-      const uploadedUrl = await uploadMergedVideo(ffmpegResult.outputPath);
-      if (uploadedUrl) {
-        mergeStats.localSuccesses++;
-        return { success: true, videoUrl: uploadedUrl };
+    for (let i = 0; i < downloadedPaths.length; i++) {
+      const inputPath = downloadedPaths[i];
+      const normalizedPath = `${tempDir}/normalized_${i}.mp4`;
+      const audioPath = downloadedAudioPaths[i];
+      
+      console.log(`[LocalFFmpeg] 標準化視頻 ${i + 1}/${downloadedPaths.length}...`);
+      
+      const normalized = await normalizeVideo(inputPath, normalizedPath, audioPath, {
+        narrationVolume,
+        originalVolume,
+      });
+      
+      if (normalized) {
+        normalizedPaths.push(normalizedPath);
+      } else {
+        console.warn(`[LocalFFmpeg] ⚠️ 視頻 ${i + 1} 標準化失敗，跳過`);
       }
     }
 
-    return { success: false, error: ffmpegResult.error || "本地合併失敗" };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "本地合併錯誤" };
+    if (normalizedPaths.length === 0) {
+      return { success: false, error: "無法標準化任何視頻" };
+    }
+
+    console.log(`[LocalFFmpeg] ✅ 成功標準化 ${normalizedPaths.length} 個視頻`);
+
+    // 步驟 3：合併標準化後的視頻
+    console.log(`[LocalFFmpeg] 🎬 合併視頻...`);
+    const outputPath = `${tempDir}/merged_output.mp4`;
+    
+    // 創建 concat 列表
+    const listPath = `${tempDir}/concat_list.txt`;
+    const listContent = normalizedPaths.map(p => `file '${p}'`).join("\n");
+    fs.writeFileSync(listPath, listContent);
+    console.log(`[LocalFFmpeg] 📝 Concat 列表:\n${listContent}`);
+
+    // 使用重編碼合併（最穩定）
+    const mergeCmd = [
+      "ffmpeg", "-y",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", `"${listPath}"`,
+      "-c:v", NORMALIZE_CONFIG.videoCodec,
+      "-preset", NORMALIZE_CONFIG.preset,
+      "-crf", String(NORMALIZE_CONFIG.crf),
+      "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
+      "-r", String(NORMALIZE_CONFIG.fps),
+      "-c:a", NORMALIZE_CONFIG.audioCodec,
+      "-b:a", NORMALIZE_CONFIG.audioBitrate,
+      "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+      "-ac", String(NORMALIZE_CONFIG.audioChannels),
+      "-movflags", "+faststart",
+      `"${outputPath}"`
+    ].join(" ");
+
+    console.log(`[LocalFFmpeg] 執行合併命令...`);
+    
+    try {
+      const { stdout, stderr } = await execAsync(mergeCmd, { 
+        timeout: 600000, // 10 分鐘超時
+        maxBuffer: 100 * 1024 * 1024 // 100MB buffer
+      });
+      if (stderr) console.log(`[LocalFFmpeg] FFmpeg stderr:`, stderr.substring(0, 500));
+    } catch (mergeError: any) {
+      console.error(`[LocalFFmpeg] ❌ 合併失敗:`, {
+        message: mergeError.message,
+        stderr: mergeError.stderr?.substring(0, 500),
+      });
+      return { success: false, error: `合併失敗: ${mergeError.message}` };
+    }
+
+    // 驗證輸出文件
+    if (!fs.existsSync(outputPath)) {
+      return { success: false, error: "合併後輸出文件不存在" };
+    }
+
+    const outputStats = fs.statSync(outputPath);
+    console.log(`[LocalFFmpeg] ✅ 合併完成，文件大小: ${(outputStats.size / 1024 / 1024).toFixed(2)} MB`);
+
+    if (outputStats.size < 10000) {
+      return { success: false, error: "合併後文件過小，可能失敗" };
+    }
+
+    // 步驟 4：上傳合併後的視頻
+    console.log(`[LocalFFmpeg] 📤 上傳合併後的視頻...`);
+    const uploadedUrl = await uploadMergedVideo(outputPath);
+
+    // 清理臨時文件
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      console.log(`[LocalFFmpeg] 🗑️ 清理臨時目錄`);
+    } catch {}
+
+    if (uploadedUrl) {
+      mergeStats.localSuccesses++;
+      return { success: true, videoUrl: uploadedUrl };
+    }
+
+    return { success: false, error: "上傳失敗" };
+
+  } catch (error: any) {
+    console.error(`[LocalFFmpeg] ❌ 合併過程錯誤:`, error.message);
+    
+    // 清理臨時文件
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    } catch {}
+
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 標準化單個視頻
+ */
+async function normalizeVideo(
+  inputPath: string,
+  outputPath: string,
+  audioPath: string,
+  options: { narrationVolume: number; originalVolume: number }
+): Promise<boolean> {
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
+  const fs = await import("fs");
+
+  try {
+    let cmd: string;
+
+    if (audioPath && fs.existsSync(audioPath)) {
+      // 有旁白音頻：混合原音和旁白
+      const origVol = options.originalVolume / 100;
+      const narrVol = options.narrationVolume / 100;
+      
+      cmd = [
+        "ffmpeg", "-y",
+        "-i", `"${inputPath}"`,
+        "-i", `"${audioPath}"`,
+        "-filter_complex",
+        `"[0:a]volume=${origVol}[a0];[1:a]volume=${narrVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout];[0:v]scale=${NORMALIZE_CONFIG.width}:-2,fps=${NORMALIZE_CONFIG.fps}[vout]"`,
+        "-map", '"[vout]"',
+        "-map", '"[aout]"',
+        "-c:v", NORMALIZE_CONFIG.videoCodec,
+        "-preset", NORMALIZE_CONFIG.preset,
+        "-crf", String(NORMALIZE_CONFIG.crf),
+        "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
+        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-b:a", NORMALIZE_CONFIG.audioBitrate,
+        "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        "-ac", String(NORMALIZE_CONFIG.audioChannels),
+        `"${outputPath}"`
+      ].join(" ");
+    } else {
+      // 無旁白音頻：只標準化視頻
+      cmd = [
+        "ffmpeg", "-y",
+        "-i", `"${inputPath}"`,
+        "-vf", `"scale=${NORMALIZE_CONFIG.width}:-2,fps=${NORMALIZE_CONFIG.fps}"`,
+        "-c:v", NORMALIZE_CONFIG.videoCodec,
+        "-preset", NORMALIZE_CONFIG.preset,
+        "-crf", String(NORMALIZE_CONFIG.crf),
+        "-pix_fmt", NORMALIZE_CONFIG.pixelFormat,
+        "-r", String(NORMALIZE_CONFIG.fps),
+        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-b:a", NORMALIZE_CONFIG.audioBitrate,
+        "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        "-ac", String(NORMALIZE_CONFIG.audioChannels),
+        `"${outputPath}"`
+      ].join(" ");
+    }
+
+    await execAsync(cmd, { timeout: 120000, maxBuffer: 50 * 1024 * 1024 });
+
+    // 驗證輸出
+    if (fs.existsSync(outputPath)) {
+      const stats = fs.statSync(outputPath);
+      if (stats.size > 10000) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (error: any) {
+    console.error(`[Normalize] ❌ 標準化失敗:`, error.message);
+    return false;
   }
 }
 
 /**
  * 第三層：緊急模式
- * 當雲端和本地合併都失敗時，返回所有片段視頻
- * 100% 保證有可用內容
  */
 function emergencyMode(videoUrls: string[], narrations: string[]): MergeResult {
   console.log(`[EmergencyMode] 🚨 緊急模式啟動`);
   console.log(`[EmergencyMode] 返回 ${videoUrls.length} 個獨立片段`);
 
-  // 過濾有效的視頻 URL
   const validUrls = videoUrls.filter(url => url && url.startsWith("http"));
 
   if (validUrls.length === 0) {
-    return {
-      success: false,
-      error: "沒有有效的視頻片段",
-      mode: "emergency",
-    };
+    return { success: false, error: "沒有有效的視頻片段", mode: "emergency" };
   }
 
-  // 返回第一個視頻作為主視頻，同時提供所有片段
-  // 這樣前端可以顯示預覽，用戶也可以下載所有片段
   return {
     success: true,
     videoUrl: validUrls[0],
     segmentUrls: validUrls,
     mode: "emergency",
-    message: `緊急模式：合併服務暫時不可用，已返回 ${validUrls.length} 個獨立片段。您可以：\n1. 預覽第一個片段\n2. 下載所有片段後使用視頻編輯軟件合併\n3. 稍後重試合併`,
-    duration: validUrls.length * 8, // 估算總時長（每個片段約 8 秒）
+    message: `緊急模式：返回 ${validUrls.length} 個獨立片段。您可以手動下載並合併。`,
+    duration: validUrls.length * 8,
   };
 }
 
@@ -457,176 +575,148 @@ function emergencyMode(videoUrls: string[], narrations: string[]): MergeResult {
  */
 async function checkFFmpegAvailable(): Promise<boolean> {
   try {
+    console.log(`[FFmpeg] 🔍 檢查 FFmpeg 是否可用...`);
     const { exec } = await import("child_process");
     const { promisify } = await import("util");
     const execAsync = promisify(exec);
 
     const { stdout } = await execAsync("ffmpeg -version", { timeout: 5000 });
+    const version = stdout.split('\n')[0];
+    console.log(`[FFmpeg] ✅ FFmpeg 版本: ${version}`);
     return stdout.includes("ffmpeg version");
-  } catch {
+  } catch (error: any) {
+    console.error(`[FFmpeg] ❌ FFmpeg 不可用:`, error.message);
     return false;
   }
 }
 
 /**
- * 下載視頻到本地
- * 優先使用 curl，如果失敗則使用 Node.js fetch 作為備用
+ * 下載視頻並驗證（帶重試和 ffprobe 校驗）
  */
-async function downloadVideo(url: string, localPath: string): Promise<boolean> {
+async function downloadVideoWithValidation(
+  url: string,
+  localPath: string,
+  tempDir: string
+): Promise<boolean> {
   const fs = await import("fs");
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
   const { pipeline } = await import("stream/promises");
-  
+
+  console.log(`[Download] 📥 開始下載:`, url.substring(0, 80) + "...");
+
   // 確保目錄存在
   const dir = localPath.substring(0, localPath.lastIndexOf("/"));
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // 方案 1：嘗試使用 curl
-  try {
-    const { exec } = await import("child_process");
-    const { promisify } = await import("util");
-    const execAsync = promisify(exec);
-    
-    await execAsync(`curl -L -o "${localPath}" "${url}"`, { timeout: 120000 });
-    if (fs.existsSync(localPath)) {
-      const stats = fs.statSync(localPath);
-      if (stats.size > 0) {
-        console.log(`[Download] curl 下載成功: ${localPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-        return true;
+  // 重試配置
+  const maxRetries = 3;
+  const retryDelays = [500, 1500, 3000];
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // 方案 1：curl
+    try {
+      await execAsync(`curl -L -f -o "${localPath}" "${url}"`, { 
+        timeout: 120000,
+        maxBuffer: 100 * 1024 * 1024 
+      });
+      
+      if (fs.existsSync(localPath)) {
+        const stats = fs.statSync(localPath);
+        if (stats.size > 50000) { // 至少 50KB
+          // 用 ffprobe 驗證
+          const isValid = await validateVideoWithFFprobe(localPath);
+          if (isValid) {
+            console.log(`[Download] ✅ curl 下載成功: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+            return true;
+          } else {
+            console.log(`[Download] ⚠️ ffprobe 驗證失敗，文件可能損壞`);
+            fs.unlinkSync(localPath);
+          }
+        } else {
+          console.log(`[Download] ⚠️ 文件過小: ${stats.size} bytes`);
+          fs.unlinkSync(localPath);
+        }
       }
+    } catch (curlError: any) {
+      console.log(`[Download] curl 失敗 (嘗試 ${attempt + 1}):`, curlError.message);
     }
-  } catch (curlError) {
-    console.log(`[Download] curl 下載失敗，嘗試 Node.js fetch: ${curlError}`);
+
+    // 方案 2：Node.js fetch
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(120000),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+      
+      const fileStream = fs.createWriteStream(localPath);
+      const { Readable } = await import("stream");
+      const nodeStream = Readable.fromWeb(response.body as any);
+      await pipeline(nodeStream, fileStream);
+      
+      if (fs.existsSync(localPath)) {
+        const stats = fs.statSync(localPath);
+        if (stats.size > 50000) {
+          const isValid = await validateVideoWithFFprobe(localPath);
+          if (isValid) {
+            console.log(`[Download] ✅ fetch 下載成功: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+            return true;
+          } else {
+            fs.unlinkSync(localPath);
+          }
+        } else {
+          fs.unlinkSync(localPath);
+        }
+      }
+    } catch (fetchError: any) {
+      console.log(`[Download] fetch 失敗 (嘗試 ${attempt + 1}):`, fetchError.message);
+    }
+
+    // 等待後重試
+    if (attempt < maxRetries - 1) {
+      await sleep(retryDelays[attempt]);
+    }
   }
 
-  // 方案 2：使用 Node.js fetch 作為備用
-  try {
-    console.log(`[Download] 使用 Node.js fetch 下載: ${url.substring(0, 60)}...`);
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
-    
-    // 使用 stream 寫入文件
-    const fileStream = fs.createWriteStream(localPath);
-    // @ts-ignore - Node.js 18+ 支持 response.body 作為 ReadableStream
-    const { Readable } = await import("stream");
-    const nodeStream = Readable.fromWeb(response.body as any);
-    await pipeline(nodeStream, fileStream);
-    
-    if (fs.existsSync(localPath)) {
-      const stats = fs.statSync(localPath);
-      if (stats.size > 0) {
-        console.log(`[Download] fetch 下載成功: ${localPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-        return true;
-      }
-    }
-  } catch (fetchError) {
-    console.log(`[Download] fetch 下載失敗: ${fetchError}`);
-  }
-
-  console.log(`[Download] 所有下載方法都失敗: ${url.substring(0, 60)}...`);
+  console.error(`[Download] ❌ 所有下載方式均失敗`);
   return false;
 }
 
 /**
- * 使用 FFmpeg 合併視頻
- * ✅ 新增：支持混入旁白音頻
+ * 用 ffprobe 驗證視頻文件有效性
  */
-async function runFFmpegMerge(
-  inputFiles: string[],
-  outputPath: string,
-  options: {
-    bgmUrl: string | null;
-    audioFiles?: string[];  // ✅ 新增：旁白音頻文件列表
-    narrationVolume: number;
-    bgmVolume: number;
-    originalVolume: number;
-    resolution: string;
-  }
-): Promise<{ success: boolean; outputPath?: string; error?: string }> {
+async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
   try {
     const { exec } = await import("child_process");
     const { promisify } = await import("util");
     const execAsync = promisify(exec);
-    const fs = await import("fs");
 
-    // 創建文件列表
-    const listPath = outputPath.replace(/\.[^.]+$/, "_list.txt");
-    const listContent = inputFiles.map(f => `file '${f}'`).join("\n");
-    fs.writeFileSync(listPath, listContent);
+    const { stdout } = await execAsync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+      { timeout: 10000 }
+    );
 
-    // ✅ 新增：檢查是否有旁白音頻需要混入
-    const validAudioFiles = options.audioFiles?.filter(f => f && fs.existsSync(f)) || [];
-    const hasNarrationAudio = validAudioFiles.length > 0;
-    
-    console.log(`[FFmpeg] 旁白音頻: ${validAudioFiles.length} 個有效文件`);
-
-    // 構建 FFmpeg 命令
-    let ffmpegCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}"`;
-
-    // ✅ 新增：如果有旁白音頻，先合併所有音頻文件
-    let narrationAudioPath = "";
-    if (hasNarrationAudio) {
-      // 創建旁白音頻列表
-      const audioListPath = outputPath.replace(/\.[^.]+$/, "_audio_list.txt");
-      const audioListContent = validAudioFiles.map(f => `file '${f}'`).join("\n");
-      fs.writeFileSync(audioListPath, audioListContent);
-      
-      // 先合併所有旁白音頻
-      narrationAudioPath = outputPath.replace(/\.[^.]+$/, "_narration.mp3");
-      const concatAudioCmd = `ffmpeg -y -f concat -safe 0 -i "${audioListPath}" -c:a libmp3lame -b:a 128k "${narrationAudioPath}"`;
-      console.log(`[FFmpeg] 合併旁白音頻: ${concatAudioCmd}`);
-      
-      try {
-        await execAsync(concatAudioCmd, { timeout: 120000 }); // 2 分鐘超時
-        console.log(`[FFmpeg] 旁白音頻合併完成`);
-      } catch (audioError) {
-        console.warn(`[FFmpeg] 旁白音頻合併失敗:`, audioError);
-        narrationAudioPath = ""; // 失敗則不使用旁白
-      }
+    const codec = stdout.trim();
+    if (codec && codec.length > 0) {
+      console.log(`[FFprobe] ✅ 視頻編碼: ${codec}`);
+      return true;
     }
 
-    // 如果有合併後的旁白音頻，添加到 FFmpeg 命令
-    if (narrationAudioPath && fs.existsSync(narrationAudioPath)) {
-      ffmpegCmd += ` -i "${narrationAudioPath}"`;
-      
-      // 使用 amix 混合原音和旁白
-      const originalVol = options.originalVolume / 100;
-      const narrationVol = options.narrationVolume / 100;
-      ffmpegCmd += ` -filter_complex "[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]"`;
-      ffmpegCmd += ` -map 0:v:0 -map "[aout]"`;
-    } else {
-      // 沒有旁白音頻，只調整原音量
-      const volumeFilter = `volume=${options.originalVolume / 100}`;
-      ffmpegCmd += ` -af "${volumeFilter}"`;
-    }
-
-    // 設置輸出格式
-    ffmpegCmd += ` -c:v libx264 -preset fast -crf 23`;
-    ffmpegCmd += ` -c:a aac -b:a 128k`;
-    ffmpegCmd += ` "${outputPath}"`;
-
-    console.log(`[FFmpeg] 執行命令: ${ffmpegCmd}`);
-    await execAsync(ffmpegCmd, { timeout: 300000 }); // 5 分鐘超時
-
-    if (fs.existsSync(outputPath)) {
-      return { success: true, outputPath };
-    }
-
-    return { success: false, error: "輸出文件不存在" };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "FFmpeg 執行失敗" };
+    return false;
+  } catch (error: any) {
+    console.log(`[FFprobe] ❌ 驗證失敗:`, error.message);
+    return false;
   }
 }
 
@@ -638,31 +728,30 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
     const fs = await import("fs");
     const apiKey = getNextApiKey();
 
-    // 讀取文件
+    console.log(`[Upload] 📤 開始上傳...`);
+
     const fileBuffer = fs.readFileSync(localPath);
     const blob = new Blob([fileBuffer], { type: "video/mp4" });
 
-    // 創建 FormData
     const formData = new FormData();
     formData.append("file", blob, "merged.mp4");
 
-    // 上傳到 VectorEngine
     const response = await fetch(`${VIDEO_API_BASE}/upload`, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-      },
+      headers: { "Authorization": `Bearer ${apiKey}` },
       body: formData,
     });
 
     if (response.ok) {
       const result = await response.json();
+      console.log(`[Upload] ✅ 上傳成功:`, result.url?.substring(0, 80));
       return result.url || null;
     }
 
+    console.log(`[Upload] ❌ 上傳失敗: ${response.status}`);
     return null;
-  } catch (error) {
-    console.log(`[Upload] 上傳失敗: ${error}`);
+  } catch (error: any) {
+    console.log(`[Upload] ❌ 上傳錯誤:`, error.message);
     return null;
   }
 }
@@ -670,15 +759,12 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
 /**
  * 生成 SRT 字幕文件內容
  */
-export function generateSrtContent(
-  narrations: string[],
-  durations: number[]
-): string {
+export function generateSrtContent(narrations: string[], durations: number[]): string {
   let srtContent = "";
   let currentTime = 0;
 
   narrations.forEach((text, index) => {
-    const duration = durations[index] || 8; // 默認 8 秒
+    const duration = durations[index] || 8;
     const startTime = formatSrtTime(currentTime);
     const endTime = formatSrtTime(currentTime + duration);
 
@@ -692,240 +778,10 @@ export function generateSrtContent(
   return srtContent;
 }
 
-/**
- * 格式化 SRT 時間
- */
 function formatSrtTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
   const ms = Math.floor((seconds % 1) * 1000);
-
-  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
-}
-
-/**
- * 獲取視頻時長
- */
-export async function getVideoDuration(videoUrl: string): Promise<number> {
-  try {
-    // 嘗試通過 API 獲取視頻信息
-    const apiKey = getNextApiKey();
-    
-    const response = await fetch(`${VIDEO_API_BASE}/video/info`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ url: videoUrl }),
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      return result.duration || 8;
-    }
-
-    // 默認返回 8 秒（Veo 生成的視頻通常是 8 秒）
-    return 8;
-  } catch (error) {
-    return 8;
-  }
-}
-
-/**
- * 計算合併後的總時長
- */
-export function calculateTotalDuration(durations: number[]): number {
-  return durations.reduce((sum, d) => sum + d, 0);
-}
-
-/**
- * 輔助函數：延遲
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * 健康檢查
- */
-export async function healthCheck(): Promise<{
-  status: "healthy" | "degraded" | "unhealthy";
-  cloudAvailable: boolean;
-  ffmpegAvailable: boolean;
-  stats: MergeStats;
-}> {
-  const ffmpegAvailable = await checkFFmpegAvailable();
-  
-  // 簡單測試雲端 API
-  let cloudAvailable = false;
-  try {
-    const apiKey = getNextApiKey();
-    const response = await fetch(`${VIDEO_API_BASE}/health`, {
-      headers: { "Authorization": `Bearer ${apiKey}` },
-    });
-    cloudAvailable = response.ok;
-  } catch {
-    cloudAvailable = false;
-  }
-
-  let status: "healthy" | "degraded" | "unhealthy";
-  if (cloudAvailable && ffmpegAvailable) {
-    status = "healthy";
-  } else if (cloudAvailable || ffmpegAvailable) {
-    status = "degraded";
-  } else {
-    status = "unhealthy"; // 仍然有緊急模式可用
-  }
-
-  return {
-    status,
-    cloudAvailable,
-    ffmpegAvailable,
-    stats: getMergeStats(),
-  };
-}
-
-
-/**
- * 🖼️ GPT 建議：圖片轉視頻功能
- * 將靜態圖片轉換為指定時長的視頻（用於圖片模式片段）
- */
-export async function generateStillVideoFromImage(
-  imageUrl: string,
-  durationSec: number = 3
-): Promise<string> {
-  console.log(`[ImageToVideo] 開始將圖片轉換為 ${durationSec} 秒視頻: ${imageUrl.substring(0, 60)}...`);
-  
-  // 方法 1：嘗試使用雲端 API
-  try {
-    const apiKey = getNextApiKey();
-    const response = await fetch(`${VIDEO_API_BASE}/video/image-to-video`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        image_url: imageUrl,
-        duration: durationSec,
-        output_format: "mp4",
-      }),
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.url || result.video_url) {
-        console.log(`[ImageToVideo] ✅ 雲端轉換成功`);
-        return result.url || result.video_url;
-      }
-    }
-    console.log(`[ImageToVideo] 雲端 API 不可用，嘗試本地 FFmpeg`);
-  } catch (error) {
-    console.log(`[ImageToVideo] 雲端 API 失敗:`, error);
-  }
-
-  // 方法 2：嘗試本地 FFmpeg
-  try {
-    const ffmpegAvailable = await checkFFmpegAvailable();
-    if (ffmpegAvailable) {
-      const result = await convertImageToVideoWithFFmpeg(imageUrl, durationSec);
-      if (result) {
-        console.log(`[ImageToVideo] ✅ 本地 FFmpeg 轉換成功`);
-        return result;
-      }
-    }
-  } catch (error) {
-    console.log(`[ImageToVideo] 本地 FFmpeg 失敗:`, error);
-  }
-
-  // 方法 3：返回原始圖片 URL（讓合併服務處理）
-  console.log(`[ImageToVideo] ⚠️ 無法轉換，返回原始圖片 URL`);
-  return imageUrl;
-}
-
-/**
- * 使用 FFmpeg 將圖片轉換為視頻
- */
-async function convertImageToVideoWithFFmpeg(
-  imageUrl: string,
-  durationSec: number
-): Promise<string | null> {
-  try {
-    const { exec } = await import("child_process");
-    const { promisify } = await import("util");
-    const execAsync = promisify(exec);
-    const fs = await import("fs");
-
-    const tempDir = `/tmp/img2video-${Date.now()}`;
-    const imagePath = `${tempDir}/input.jpg`;
-    const outputPath = `${tempDir}/output.mp4`;
-
-    // 創建臨時目錄
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // 下載圖片
-    await execAsync(`curl -L -o "${imagePath}" "${imageUrl}"`, { timeout: 30000 });
-
-    if (!fs.existsSync(imagePath)) {
-      console.log(`[ImageToVideo] 圖片下載失敗`);
-      return null;
-    }
-
-    // 使用 FFmpeg 將圖片轉換為視頻
-    // -loop 1: 循環圖片
-    // -t: 視頻時長
-    // -r: 幀率
-    // -pix_fmt yuv420p: 確保兼容性
-    const ffmpegCmd = `ffmpeg -y -loop 1 -i "${imagePath}" -c:v libx264 -t ${durationSec} -pix_fmt yuv420p -r 24 "${outputPath}"`;
-    
-    console.log(`[ImageToVideo] 執行 FFmpeg: ${ffmpegCmd}`);
-    await execAsync(ffmpegCmd, { timeout: 60000 });
-
-    if (!fs.existsSync(outputPath)) {
-      console.log(`[ImageToVideo] FFmpeg 輸出文件不存在`);
-      return null;
-    }
-
-    // 上傳到存儲
-    const { storagePut } = await import("./storage");
-    const fileBuffer = fs.readFileSync(outputPath);
-    const fileName = `img2video-${Date.now()}.mp4`;
-    const { url } = await storagePut(fileName, fileBuffer, "video/mp4");
-
-    // 清理臨時文件
-    try {
-      fs.unlinkSync(imagePath);
-      fs.unlinkSync(outputPath);
-      fs.rmdirSync(tempDir);
-    } catch {}
-
-    return url;
-  } catch (error) {
-    console.error(`[ImageToVideo] FFmpeg 轉換失敗:`, error);
-    return null;
-  }
-}
-
-/**
- * 檢查 URL 是否為圖片格式
- */
-export function isImageUrl(url: string): boolean {
-  const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-  const cleanUrl = url.split("?")[0];
-  const ext = cleanUrl.split(".").pop()?.toLowerCase() || "";
-  return imageExtensions.includes(ext);
-}
-
-/**
- * 檢查 URL 是否為視頻格式
- */
-export function isVideoUrl(url: string): boolean {
-  const videoExtensions = ["mp4", "webm", "mov", "avi", "mkv"];
-  const cleanUrl = url.split("?")[0];
-  const ext = cleanUrl.split(".").pop()?.toLowerCase() || "";
-  return videoExtensions.includes(ext);
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }
