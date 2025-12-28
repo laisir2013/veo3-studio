@@ -13,6 +13,7 @@ import { mergeVideos, BGM_OPTIONS, SUBTITLE_STYLES, type BgmType, type SubtitleS
 import { notifyOwner } from "./_core/notification";
 import { createBatchJob, getBatchJob, updateBatchTask, getAllBatchJobs, deleteBatchJob, estimateBatchTime, calculateMaxConcurrency } from "./batchService";
 import { createLongVideoTask, getLongVideoTask, updateLongVideoTask, updateSegment, startNextBatch, getBatchApiKey, isTaskCompleted, getUserLongVideoTasks, deleteLongVideoTask, getTaskStats, calculateSegmentCount, calculateBatchCount, BATCH_SIZE, SEGMENT_DURATION, type LongVideoTask, type Segment, type Batch } from "./segmentBatchService";
+import { truncateNarration } from "./segmentGenerationService";
 import { getAllVoiceActors, getVoiceActorsByGender, getVoiceActorsByType, matchVoiceActorByDescription, autoAssignVoiceActors, analyzeCharactersFromStory, generateSceneVoice, getAllVoiceActorsConfig, getVoiceStats, getFilterOptions, filterVoiceActorsAdvanced, getVoiceActorSampleUrl, getVoiceActorConfig, getAllSampleUrls, getVoiceActorsByAgeGroup, getVoiceActorsByStyle } from "./voiceService";
 import { VOICE_ACTORS, VOICE_MODES, type VoiceActorId, type VoiceMode } from "./videoConfig";
 import { characterVoices, type CharacterVoiceConfig } from "../drizzle/schema";
@@ -822,6 +823,12 @@ export const appRouter = router({
         }
 
         console.log(`[LongVideo ${taskIdForLog}] 開始合併 ${videoUrls.length} 個片段...`);
+        
+        // ✅ 新增：詳細記錄每個片段的 audioUrl
+        console.log(`[LongVideo ${taskIdForLog}] 音頻 URL 詳情:`);
+        audioUrls.forEach((url, i) => {
+          console.log(`  片段 ${i + 1}: ${url ? url.substring(0, 60) + '...' : '(空)'}`);
+        });
 
         // ✅ 新增：合併前詳細驗證
         console.log(`\n📊 [LongVideo ${taskIdForLog}] 合併前驗證:`);
@@ -2027,6 +2034,14 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             } else if (sceneData?.narration) {
               // 備用：如果有單一 narration 字段
               narrationText = sceneData.narration;
+            }
+            
+            // ✅ 新增：強制截斷旁白，確保旁白時長不超過影片時長
+            // 8 秒影片 × 2 字/秒 = 16 字上限
+            const originalLength = narrationText.length;
+            narrationText = truncateNarration(narrationText, task.language || 'cantonese', 16);
+            if (narrationText.length < originalLength) {
+              console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 旁白已截斷: ${originalLength} -> ${narrationText.length} 字`);
             }
             
             const voiceActorId = task.voiceActorId || 'default';

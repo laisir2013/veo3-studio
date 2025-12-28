@@ -18,8 +18,8 @@ export interface GenerateSegmentsResult {
   apiProviderName?: string;
 }
 
-// ✅ 新增：強制截斷旁白的輔助函數
-function truncateNarration(narration: string, language: string, maxLength: number = 20): string {
+// ✅ 新增：強制截斷旁白的輔助函數（導出供其他模組使用）
+export function truncateNarration(narration: string, language: string, maxLength: number = 16): string {
   if (language === 'english') {
     // 英文按單詞數截斷
     const words = narration.split(/\s+/);
