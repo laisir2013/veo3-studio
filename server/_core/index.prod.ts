@@ -38,6 +38,12 @@ async function startServer() {
   console.log(`[EnvCheck] BUILT_IN_FORGE_API_URL present:`, Boolean(process.env.BUILT_IN_FORGE_API_URL));
   console.log(`[EnvCheck] BUILT_IN_FORGE_API_KEY present:`, Boolean(process.env.BUILT_IN_FORGE_API_KEY));
   console.log(`[EnvCheck] OPENAI_API_KEY present:`, Boolean(process.env.OPENAI_API_KEY));
+  console.log(`[EnvCheck] ---------- R2 存儲配置 ----------`);
+  console.log(`[EnvCheck] R2_ACCOUNT_ID present:`, Boolean(process.env.R2_ACCOUNT_ID));
+  console.log(`[EnvCheck] R2_ACCESS_KEY_ID present:`, Boolean(process.env.R2_ACCESS_KEY_ID));
+  console.log(`[EnvCheck] R2_SECRET_ACCESS_KEY present:`, Boolean(process.env.R2_SECRET_ACCESS_KEY));
+  console.log(`[EnvCheck] R2_BUCKET present:`, Boolean(process.env.R2_BUCKET));
+  console.log(`[EnvCheck] R2_PUBLIC_BASE_URL present:`, Boolean(process.env.R2_PUBLIC_BASE_URL));
   console.log(`[EnvCheck] ========================================`);
 
   const app = express();

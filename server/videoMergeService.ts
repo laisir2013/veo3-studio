@@ -11,6 +11,7 @@
 
 import { getNextApiKey, API_ENDPOINTS, RETRY_CONFIG } from "./videoConfig";
 import { storagePut } from "./storage";
+import { isR2Configured, uploadVideoToR2 } from "./r2Storage";
 
 const VIDEO_API_BASE = API_ENDPOINTS.vectorEngine;
 
@@ -756,7 +757,7 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
 
 /**
  * 上傳合併後的視頻 - 多重上傳方案
- * 優先順序：file.io → 0x0.st → Manus Storage → VectorEngine
+ * 優先順序：R2 → catbox → litterbox → file.io → 0x0.st → Manus Storage → VectorEngine
  */
 async function uploadMergedVideo(localPath: string): Promise<string | null> {
   const fs = await import("fs");
@@ -767,7 +768,23 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   console.log(`[Upload] 📤 開始上傳合併後的視頻（${fileSizeMB} MB）...`);
 
   // ========================================
-  // 方案 1：catbox.moe（免費永久託管，最大 200MB，優先使用）
+  // 方案 0：Cloudflare R2（主存儲，最穩定）
+  // ========================================
+  if (isR2Configured()) {
+    try {
+      console.log(`[Upload] 嘗試 Cloudflare R2...`);
+      const url = await uploadVideoToR2(fileBuffer, fileName);
+      console.log(`[Upload] ✅ R2 上傳成功:`, url);
+      return url;
+    } catch (r2Error: any) {
+      console.log(`[Upload] ⚠️ R2 上傳失敗:`, r2Error.message);
+    }
+  } else {
+    console.log(`[Upload] ⚠️ R2 未配置，跳過`);
+  }
+
+  // ========================================
+  // 方案 1：catbox.moe（免費永久託管，最大 200MB）
   // ========================================
   try {
     console.log(`[Upload] 嘗試 catbox.moe...`);
