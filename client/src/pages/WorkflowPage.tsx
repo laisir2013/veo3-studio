@@ -97,7 +97,10 @@ const SEGMENT_DURATION_SECONDS = 8;
 const BATCH_SIZE = 6;
 
 function calculateSegments(minutes: number): number {
-  return Math.ceil((minutes * 60) / SEGMENT_DURATION_SECONDS);
+  // 使用 Math.round 確保 16 秒 = 2 個片段，24 秒 = 3 個片段
+  // Math.ceil 會導致 16 秒 = 3 個片段（因為 16/8 = 2.0，但浮點誤差可能導致 2.0001）
+  const totalSeconds = Math.round(minutes * 60);
+  return Math.max(1, Math.round(totalSeconds / SEGMENT_DURATION_SECONDS));
 }
 
 function calculateBatches(totalSegments: number): number {
