@@ -470,27 +470,73 @@ async function checkFFmpegAvailable(): Promise<boolean> {
 
 /**
  * 下載視頻到本地
+ * 優先使用 curl，如果失敗則使用 Node.js fetch 作為備用
  */
 async function downloadVideo(url: string, localPath: string): Promise<boolean> {
+  const fs = await import("fs");
+  const { pipeline } = await import("stream/promises");
+  
+  // 確保目錄存在
+  const dir = localPath.substring(0, localPath.lastIndexOf("/"));
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  // 方案 1：嘗試使用 curl
   try {
     const { exec } = await import("child_process");
     const { promisify } = await import("util");
     const execAsync = promisify(exec);
-    const fs = await import("fs");
-
-    // 確保目錄存在
-    const dir = localPath.substring(0, localPath.lastIndexOf("/"));
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    
+    await execAsync(`curl -L -o "${localPath}" "${url}"`, { timeout: 120000 });
+    if (fs.existsSync(localPath)) {
+      const stats = fs.statSync(localPath);
+      if (stats.size > 0) {
+        console.log(`[Download] curl 下載成功: ${localPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+        return true;
+      }
     }
-
-    // 使用 curl 下載
-    await execAsync(`curl -L -o "${localPath}" "${url}"`, { timeout: 60000 });
-    return fs.existsSync(localPath);
-  } catch (error) {
-    console.log(`[Download] 下載失敗: ${error}`);
-    return false;
+  } catch (curlError) {
+    console.log(`[Download] curl 下載失敗，嘗試 Node.js fetch: ${curlError}`);
   }
+
+  // 方案 2：使用 Node.js fetch 作為備用
+  try {
+    console.log(`[Download] 使用 Node.js fetch 下載: ${url.substring(0, 60)}...`);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    if (!response.body) {
+      throw new Error('Response body is null');
+    }
+    
+    // 使用 stream 寫入文件
+    const fileStream = fs.createWriteStream(localPath);
+    // @ts-ignore - Node.js 18+ 支持 response.body 作為 ReadableStream
+    const { Readable } = await import("stream");
+    const nodeStream = Readable.fromWeb(response.body as any);
+    await pipeline(nodeStream, fileStream);
+    
+    if (fs.existsSync(localPath)) {
+      const stats = fs.statSync(localPath);
+      if (stats.size > 0) {
+        console.log(`[Download] fetch 下載成功: ${localPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+        return true;
+      }
+    }
+  } catch (fetchError) {
+    console.log(`[Download] fetch 下載失敗: ${fetchError}`);
+  }
+
+  console.log(`[Download] 所有下載方法都失敗: ${url.substring(0, 60)}...`);
+  return false;
 }
 
 /**
