@@ -284,11 +284,12 @@ export default function WorkflowPage() {
   }, []);
 
   // 💾 當關鍵狀態變化時自動保存
+  // ✅ 修復：添加 mergedVideoUrl 到依賴數組，確保合併後的 URL 被保存
   useEffect(() => {
     if (taskId && segments.length > 0) {
       saveStateToStorage();
     }
-  }, [taskId, currentStep, segments, stepStatuses, saveStateToStorage]);
+  }, [taskId, currentStep, segments, stepStatuses, mergedVideoUrl, saveStateToStorage]);
 
   // 💾 清除已保存的狀態（用於開始新任務）
   const clearSavedState = useCallback(() => {
@@ -854,7 +855,19 @@ export default function WorkflowPage() {
 
       // ✅ 修復：只有 success: true 且有 videoUrl 才算成功
       if (result.success && result.videoUrl) {
-        setMergedVideoUrl(result.videoUrl);
+        // ✅ 新增：詳細日誌追蹤 URL
+        console.log("[Merge Success] 🎉 合併成功!");
+        console.log("[Merge Success] 📤 返回的 videoUrl:", result.videoUrl);
+        console.log("[Merge Success] 🔍 URL 是否包含 'merged_':", result.videoUrl.includes('merged_'));
+        
+        // ✅ 新增：添加緩存破壞參數，避免瀏覽器緩存舊視頻
+        const urlWithCacheBuster = result.videoUrl.includes('?') 
+          ? `${result.videoUrl}&_t=${Date.now()}` 
+          : `${result.videoUrl}?_t=${Date.now()}`;
+        
+        console.log("[Merge Success] 🔄 添加緩存破壞後的 URL:", urlWithCacheBuster);
+        
+        setMergedVideoUrl(urlWithCacheBuster);
         
         // 檢查是否為本地模式
         if (result.mode === "local") {
@@ -1878,6 +1891,12 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     className="w-full aspect-video rounded-lg border border-zinc-700"
                     controls
                   />
+                  {/* 🔧 調試信息：顯示合併後的視頻 URL */}
+                  <div className="text-xs text-zinc-500 break-all p-2 bg-zinc-900/50 rounded border border-zinc-800">
+                    <span className="text-zinc-400">📤 合併視頻 URL:</span>
+                    <br />
+                    <code className="text-emerald-400/80">{mergedVideoUrl}</code>
+                  </div>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"

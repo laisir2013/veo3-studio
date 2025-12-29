@@ -940,7 +940,24 @@ export const appRouter = router({
             });
           }
 
-          console.log(`[LongVideo ${taskIdForLog}] 視頻合併${mergeResult.success ? '成功' : '失敗'}: ${mergeResult.videoUrl || '(無合併視頻)'}`);
+          // ✅ 新增：詳細日誌追蹤返回的 URL
+          console.log(`[LongVideo ${taskIdForLog}] 視頻合併${mergeResult.success ? '成功' : '失敗'}`);
+          console.log(`[LongVideo ${taskIdForLog}] 📤 返回結果:`, {
+            success: mergeResult.success,
+            videoUrl: mergeResult.videoUrl ? mergeResult.videoUrl.substring(0, 100) + '...' : '(null)',
+            mode: mergeResult.mode,
+            duration: mergeResult.duration,
+            segmentCount: mergeResult.segmentUrls?.length || 0,
+          });
+          
+          // ✅ 新增：驗證返回的 URL 是否為合併後的文件（包含 "merged_" 前綴）
+          if (mergeResult.success && mergeResult.videoUrl) {
+            const isMergedUrl = mergeResult.videoUrl.includes('merged_');
+            if (!isMergedUrl) {
+              console.warn(`[LongVideo ${taskIdForLog}] ⚠️ 警告: 返回的 URL 不包含 'merged_'，可能是原始片段 URL`);
+              console.warn(`[LongVideo ${taskIdForLog}] URL: ${mergeResult.videoUrl}`);
+            }
+          }
 
           return {
             success: mergeResult.success,

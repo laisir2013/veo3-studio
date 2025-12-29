@@ -197,12 +197,26 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     };
   }
 
-  // 如果只有一個視頻且不需要處理，直接返回
-  if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none") {
-    console.log(`[VideoMerge] 只有一個視頻，直接返回`);
+  // ✅ 修復：檢查是否有旁白音頻需要混入
+  const hasValidAudio = audioUrls.some(url => url && url.startsWith("http"));
+  const hasNarrations = narrations.some(n => n && n.trim().length > 0);
+  
+  // 如果只有一個視頻且不需要任何處理（無 BGM、無字幕、無旁白音頻），直接返回
+  if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none" && !hasValidAudio && !hasNarrations) {
+    console.log(`[VideoMerge] 只有一個視頻且無需處理，直接返回`);
     const result: MergeResult = { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
     assertMergeResponse(result);
     return result;
+  }
+  
+  // ✅ 新增日誌：說明為什麼需要處理
+  if (validVideoUrls.length === 1) {
+    console.log(`[VideoMerge] 只有一個視頻，但需要處理:`, {
+      hasValidAudio,
+      hasNarrations,
+      bgmType,
+      subtitleStyle,
+    });
   }
 
   // 第一層：雲端合併
