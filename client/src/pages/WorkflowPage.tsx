@@ -621,6 +621,8 @@ export default function WorkflowPage() {
         voiceActorId: selectedVoiceActor,
         speedMode: selectedSpeedMode,
         sessionId: sessionId || undefined, // 訪客模式使用 sessionId 保存歷史記錄
+        enableHybridMode: enableHybridMode, // 混合模式開關
+        imagePercent: enableHybridMode ? imagePercent : 0, // 圖片比例（0-100）
       });
 
       if (result.taskId) {
