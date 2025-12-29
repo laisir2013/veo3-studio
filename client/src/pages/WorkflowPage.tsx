@@ -169,9 +169,9 @@ export default function WorkflowPage() {
   // 步驟8：生成設定
   const [selectedSpeedMode, setSelectedSpeedMode] = useState<"fast" | "quality">("fast");
   
-  // 步驟8.5：混合內容比例選擇
+  // 步驟8.5：混合內容比例選擇（默認開啟）
   const [imagePercent, setImagePercent] = useState(60);
-  const [enableHybridMode, setEnableHybridMode] = useState(false);
+  const [enableHybridMode, setEnableHybridMode] = useState(true);
 
   // 步驟9-11：生成狀態
   const [taskId, setTaskId] = useState<string | null>(null);
