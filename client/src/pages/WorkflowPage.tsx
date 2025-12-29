@@ -982,9 +982,10 @@ Total: ${segmentCount} segments of 8 seconds each`;
     }
   };
 
-  // 導航函數
+  // 導航函數 - 🔧 修復：允許回到任何已完成或當前步驟之前的步驟
   const handleStepClick = (stepId: number) => {
-    if (stepId <= currentStep || stepStatuses[stepId - 1] === "completed") {
+    // 允許回到任何已完成的步驟，或當前步驟之前的步驟
+    if (stepId <= currentStep || stepStatuses[stepId] === "completed") {
       setCurrentStep(stepId);
     }
   };
@@ -1895,6 +1896,36 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     >
                       <ChevronRight className="w-4 h-4 mr-1 sm:mr-2" />
                       下一步：SEO 優化
+                    </Button>
+                  </div>
+                  {/* 🔧 新增：重新開始按鈕 */}
+                  <div className="mt-4 pt-4 border-t border-zinc-700">
+                    <Button
+                      variant="outline"
+                      className="w-full text-xs sm:text-sm"
+                      onClick={() => {
+                        clearSavedState();
+                        setCurrentStep(1);
+                        setTopic("");
+                        setSelectedLanguage("cantonese");
+                        setSelectedVoiceActor(null);
+                        setStoryOutline("");
+                        setSegments([]);
+                        setVideoTitle("");
+                        setMergedVideoUrl(null);
+                        setSeoResult(null);
+                        setTaskId(null);
+                        setSubtitles([]);
+                        setStepStatuses({
+                          1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
+                          6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
+                          11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
+                        });
+                        toast.success("已重置，可以開始新任務！");
+                      }}
+                    >
+                      <RotateCcw className="w-4 h-4 mr-1 sm:mr-2" />
+                      重新開始新任務
                     </Button>
                   </div>
                 </div>
