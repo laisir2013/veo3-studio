@@ -368,9 +368,23 @@ export const appRouter = router({
           throw new Error("沒有可合併的視頻");
         }
 
+        // 獲取所有已完成場景的音頻 URL
+        const audioUrls = scenes
+          .filter(s => s.status === "completed" && s.videoUrl)
+          .map(s => s.audioUrl || "");
+
+        // 🔍 合併診斷報告
+        console.log(`========== 🔍 合併診斷報告 (trpc.longVideo.merge) ==========`);
+        console.log(`任務 ID: ${input.taskId}`);
+        console.log(`片段總數: ${scenes.length}`);
+        console.log(`有效視頻: ${videoUrls.length}`);
+        console.log(`有效音頻: ${audioUrls.filter(u => u).length}`);
+        console.log(`==========================================================`);
+
         // 合併視頻
         const result = await mergeVideos({
           videoUrls,
+          audioUrls, // ✅ 修復：傳遞音頻 URL
           narrations,
           bgmType: input.bgmType as BgmType,
           subtitleStyle: input.subtitleStyle as SubtitleStyle,
@@ -886,11 +900,18 @@ export const appRouter = router({
         console.log(`  • 原視頻音量: ${input.originalVolume}%`);
 
         try {
+          // 🔍 合併診斷報告
+          console.log(`========== 🔍 合併診斷報告 (trpc.longVideo.generate) ==========`);
+          console.log(`任務 ID: ${task?.id}`);
+          console.log(`有效視頻: ${videoUrls.length}`);
+          console.log(`有效音頻: ${audioUrls.filter(u => u).length}`);
+          console.log(`============================================================`);
+
           // 調用視頻合併服務
-          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${validAudioUrls.length}`);
+          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${audioUrls.length}`);
           const mergeResult = await mergeVideos({
             videoUrls: videoUrls,
-            audioUrls: audioUrls, // ✅ 新增：傳遞旁白音頻 URL
+            audioUrls: audioUrls, // ✅ 確保傳遞音頻 URL
             narrations: narrations,
             bgmType: (task?.bgmType || "none") as BgmType,
             subtitleStyle: (task?.subtitleStyle || "none") as SubtitleStyle,
