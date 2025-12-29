@@ -951,7 +951,8 @@ async function downloadVideoWithValidation(
 }
 
 /**
- * 用 ffprobe 驗證視頻文件有效性
+ * 用 ffprobe 驗證媒體文件有效性（支持視頻和音頻）
+ * ✅ 修復：音頻文件使用 -select_streams a:0 而不是 v:0
  */
 async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
   try {
@@ -959,15 +960,31 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
     const { promisify } = await import("util");
     const execAsync = promisify(exec);
 
-    const { stdout } = await execAsync(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
-      { timeout: 10000 }
-    );
-
-    const codec = stdout.trim();
-    if (codec && codec.length > 0) {
-      console.log(`[FFprobe] ✅ 視頻編碼: ${codec}`);
-      return true;
+    // ✅ 判斷是否為音頻文件
+    const isAudio = filePath.endsWith('.mp3') || filePath.endsWith('.wav') || filePath.endsWith('.aac') || filePath.endsWith('.m4a');
+    
+    if (isAudio) {
+      // ✅ 音頻文件：檢查音頻流
+      const { stdout } = await execAsync(
+        `ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+        { timeout: 10000 }
+      );
+      const codec = stdout.trim();
+      if (codec && codec.length > 0) {
+        console.log(`[FFprobe] ✅ 音頻編碼: ${codec}`);
+        return true;
+      }
+    } else {
+      // 視頻文件：檢查視頻流
+      const { stdout } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+        { timeout: 10000 }
+      );
+      const codec = stdout.trim();
+      if (codec && codec.length > 0) {
+        console.log(`[FFprobe] ✅ 視頻編碼: ${codec}`);
+        return true;
+      }
     }
 
     return false;
