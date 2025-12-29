@@ -2161,11 +2161,68 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                 .sort((a, b) => a.id - b.id);
               
               if (completedSegments.length > 0) {
+                // 🔧 完整診斷報告
+                console.log(`\n========== 🔍 合併診斷報告 [${taskId}] ==========`);
+                console.log(`任務 ID: ${taskId}`);
+                console.log(`片段總數: ${finalTask.segments.length}`);
+                console.log(`完成片段: ${completedSegments.length}`);
+                
+                // 顯示所有片段狀態
+                console.log(`\n📋 所有片段狀態:`);
+                finalTask.segments.forEach((seg, i) => {
+                  console.log(`  片段 ${i + 1}: status=${seg.status}, hasVideo=${Boolean(seg.videoUrl)}, hasAudio=${Boolean(seg.audioUrl)}`);
+                });
+                
+                // 診斷統計
+                const diagnostics = {
+                  hasVideo: 0,
+                  hasAudio: 0,
+                  hasNarration: 0,
+                  issues: [] as string[],
+                };
+                
+                completedSegments.forEach((seg, i) => {
+                  if (seg.videoUrl) diagnostics.hasVideo++;
+                  if (seg.audioUrl) diagnostics.hasAudio++;
+                  if (seg.narration) diagnostics.hasNarration++;
+                  
+                  if (!seg.audioUrl && seg.narration) {
+                    diagnostics.issues.push(`片段 ${i + 1}: 有旁白文字但無音頻 URL`);
+                  }
+                  
+                  console.log(`\n🎬 片段 ${i + 1}/${completedSegments.length} 詳情:`, {
+                    id: seg.id,
+                    status: seg.status,
+                    videoUrl: seg.videoUrl ? seg.videoUrl.substring(0, 60) + '...' : '(空)',
+                    audioUrl: seg.audioUrl ? seg.audioUrl.substring(0, 60) + '...' : '(空)',
+                    narration: seg.narration ? seg.narration.substring(0, 40) + '...' : '(空)',
+                  });
+                });
+                
+                console.log(`\n📊 統計結果:`);
+                console.log(`  ✅ 視頻 URL: ${diagnostics.hasVideo}/${completedSegments.length}`);
+                console.log(`  🎤 音頻 URL: ${diagnostics.hasAudio}/${completedSegments.length}`);
+                console.log(`  📝 旁白文字: ${diagnostics.hasNarration}/${completedSegments.length}`);
+                
+                if (diagnostics.issues.length > 0) {
+                  console.warn(`\n⚠️ 發現問題:`);
+                  diagnostics.issues.forEach(issue => console.warn(`  - ${issue}`));
+                }
+                
+                console.log(`\n🎵 BGM 類型: ${task.bgmType || 'none'}`);
+                console.log(`📝 字幕樣式: ${task.subtitleStyle || 'none'}`);
+                
+                // 如果沒有音頻但有旁白，發出嚴重警告
+                if (diagnostics.hasAudio === 0 && diagnostics.hasNarration > 0) {
+                  console.error(`\n❌ 嚴重警告：所有片段都缺少音頻 URL！`);
+                  console.error(`   這將導致合併後的視頻沒有旁白聲音。`);
+                  console.error(`   請檢查 TTS 服務和 audioUrl 保存邏輯。`);
+                }
+                
+                console.log(`\n========================================\n`);
+                
                 // 合併視頻
-                // ✅ 修復：添加 audioUrls 參數
                 const audioUrls = completedSegments.map(seg => seg.audioUrl || '');
-                console.log(`[LongVideo ${taskId}] 準備合併，audioUrls:`, audioUrls);
-                console.log(`[LongVideo ${taskId}] 準備合併，narrations:`, completedSegments.map(seg => seg.narration || ''));
                 
                 const mergeResult = await mergeVideos({
                   videoUrls: completedSegments.map(seg => seg.videoUrl!),
