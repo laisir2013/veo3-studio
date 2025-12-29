@@ -937,18 +937,6 @@ function formatAssTime(seconds: number): string {
  * 標準化單個視頻（包含旁白和字幕）
  */
 async function normalizeVideo(
-    const isImage = inputUrl.match(/\.(jpg|jpeg|png|webp)$/i);
-    if (isImage) {
-        const output = require("path").join(tempDir, `img_norm_${index}_${Date.now()}.mp4`);
-        const imageCmd = `ffmpeg -loop 1 -i "${inputUrl}" -t 3 -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -r 30 "${output}"`;
-        await new Promise((resolve, reject) => {
-            require("child_process").exec(imageCmd, { timeout: 30000 }, (error) => {
-                if (error) reject(error);
-                else resolve(true);
-            });
-        });
-        return output;
-    }
   inputPath: string,
   outputPath: string,
   audioPath: string,
