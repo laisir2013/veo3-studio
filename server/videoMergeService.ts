@@ -16,18 +16,25 @@ import { isR2Configured, uploadVideoToR2 } from "./r2Storage";
 const VIDEO_API_BASE = API_ENDPOINTS.vectorEngine;
 
 // 標準化視頻參數（統一規格）
+// ✅ 優化：降低分辨率和質量以減少內存使用（適應 512MB 環境）
 const NORMALIZE_CONFIG = {
   width: 1280,
   height: 720,
   fps: 30,
   videoCodec: "libx264",
   audioCodec: "aac",
-  audioBitrate: "192k",
-  audioSampleRate: 48000,
+  audioBitrate: "128k",  // ✅ 降低音頻碼率
+  audioSampleRate: 44100, // ✅ 降低採樣率
   audioChannels: 2,
-  preset: "veryfast",
-  crf: 20,
+  preset: "ultrafast",    // ✅ 使用最快預設，減少內存
+  crf: 23,                // ✅ 稍微降低質量，減少內存
   pixelFormat: "yuv420p",
+};
+
+// ✅ 新增：FFmpeg 執行配置（適應低內存環境）
+const FFMPEG_EXEC_CONFIG = {
+  timeout: 180000,        // 3 分鐘超時
+  maxBuffer: 10 * 1024 * 1024, // ✅ 降低到 10MB（原 50MB）
 };
 
 // 背景音樂選項
@@ -544,9 +551,10 @@ async function tryLocalFFmpegMerge(
     console.log(`[LocalFFmpeg] 執行合併命令...`);
     
     try {
+      // ✅ 優化：降低 maxBuffer 以減少內存使用
       const { stdout, stderr } = await execAsync(mergeCmd, { 
-        timeout: 600000, // 10 分鐘超時
-        maxBuffer: 100 * 1024 * 1024 // 100MB buffer
+        timeout: 300000, // 5 分鐘超時
+        maxBuffer: 20 * 1024 * 1024 // ✅ 降低到 20MB
       });
       if (stderr) console.log(`[LocalFFmpeg] FFmpeg stderr:`, stderr.substring(0, 500));
     } catch (mergeError: any) {
@@ -577,6 +585,12 @@ async function tryLocalFFmpegMerge(
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
       console.log(`[LocalFFmpeg] 🗑️ 清理臨時目錄`);
+      
+      // ✅ 新增：強制垃圾回收以釋放內存
+      if (global.gc) {
+        global.gc();
+        console.log(`[LocalFFmpeg] 🧹 已觸發垃圾回收`);
+      }
     } catch {}
 
     if (uploadedUrl) {
@@ -769,7 +783,7 @@ async function normalizeVideo(
       ].join(" ");
     }
 
-    await execAsync(cmd, { timeout: 120000, maxBuffer: 50 * 1024 * 1024 });
+    await execAsync(cmd, FFMPEG_EXEC_CONFIG);
 
     // 驗證輸出
     if (fs.existsSync(outputPath)) {
@@ -861,9 +875,10 @@ async function downloadVideoWithValidation(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // 方案 1：curl
     try {
+      // ✅ 優化：降低 maxBuffer
       await execAsync(`curl -L -f -o "${localPath}" "${url}"`, { 
         timeout: 120000,
-        maxBuffer: 100 * 1024 * 1024 
+        maxBuffer: 10 * 1024 * 1024 // ✅ 降低到 10MB
       });
       
       if (fs.existsSync(localPath)) {
@@ -968,11 +983,22 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
  */
 async function uploadMergedVideo(localPath: string): Promise<string | null> {
   const fs = await import("fs");
-  const fileBuffer = fs.readFileSync(localPath);
-  const fileSizeMB = (fileBuffer.length / 1024 / 1024).toFixed(2);
+  
+  // ✅ 優化：先獲取文件大小，不立即讀取整個文件
+  const stats = fs.statSync(localPath);
+  const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
   const fileName = `merged_${Date.now()}_${Math.random().toString(36).substring(7)}.mp4`;
   
   console.log(`[Upload] 📤 開始上傳合併後的視頻（${fileSizeMB} MB）...`);
+  
+  // ✅ 優化：延遲讀取文件，只在需要時才讀取
+  let fileBuffer: Buffer | null = null;
+  const getFileBuffer = () => {
+    if (!fileBuffer) {
+      fileBuffer = fs.readFileSync(localPath);
+    }
+    return fileBuffer;
+  };
 
   // ========================================
   // 方案 0：Cloudflare R2（主存儲，最穩定）
@@ -980,7 +1006,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   if (isR2Configured()) {
     try {
       console.log(`[Upload] 嘗試 Cloudflare R2...`);
-      const url = await uploadVideoToR2(fileBuffer, fileName);
+      const url = await uploadVideoToR2(getFileBuffer(), fileName);
       console.log(`[Upload] ✅ R2 上傳成功:`, url);
       return url;
     } catch (r2Error: any) {
@@ -996,7 +1022,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   try {
     console.log(`[Upload] 嘗試 catbox.moe...`);
     const formData = new FormData();
-    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    const blob = new Blob([getFileBuffer()], { type: "video/mp4" });
     formData.append("reqtype", "fileupload");
     formData.append("fileToUpload", blob, fileName);
 
@@ -1021,7 +1047,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   try {
     console.log(`[Upload] 嘗試 litterbox.catbox.moe...`);
     const formData = new FormData();
-    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    const blob = new Blob([getFileBuffer()], { type: "video/mp4" });
     formData.append("reqtype", "fileupload");
     formData.append("time", "24h");
     formData.append("fileToUpload", blob, fileName);
@@ -1047,7 +1073,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   try {
     console.log(`[Upload] 嘗試 file.io...`);
     const formData = new FormData();
-    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    const blob = new Blob([getFileBuffer()], { type: "video/mp4" });
     formData.append("file", blob, fileName);
 
     const response = await fetch("https://file.io", {
@@ -1078,7 +1104,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   try {
     console.log(`[Upload] 嘗試 0x0.st...`);
     const formData = new FormData();
-    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    const blob = new Blob([getFileBuffer()], { type: "video/mp4" });
     formData.append("file", blob, fileName);
 
     const response = await fetch("https://0x0.st", {
@@ -1103,7 +1129,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
     console.log(`[Upload] 嘗試 transfer.sh...`);
     const response = await fetch(`https://transfer.sh/${fileName}`, {
       method: "PUT",
-      body: fileBuffer,
+      body: getFileBuffer(),
       headers: {
         "Content-Type": "video/mp4",
       },
@@ -1126,7 +1152,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
     console.log(`[Upload] 嘗試 Manus Storage...`);
     const { url } = await storagePut(
       `videos/merged/${fileName}`,
-      fileBuffer,
+      getFileBuffer(),
       "video/mp4"
     );
     console.log(`[Upload] ✅ Manus Storage 上傳成功:`, url.substring(0, 80));
@@ -1141,7 +1167,7 @@ async function uploadMergedVideo(localPath: string): Promise<string | null> {
   try {
     console.log(`[Upload] 嘗試 VectorEngine...`);
     const apiKey = getNextApiKey();
-    const blob = new Blob([fileBuffer], { type: "video/mp4" });
+    const blob = new Blob([getFileBuffer()], { type: "video/mp4" });
 
     const formData = new FormData();
     formData.append("file", blob, fileName);
