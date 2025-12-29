@@ -9,7 +9,7 @@ import { videoTasks, characters, type VideoTask, type SceneData, type Character,
 import { MODE_PRESETS, STORY_MODE_PRESETS, VIDEO_MODELS, LLM_MODELS, type GenerationMode, type VideoModel, type StoryMode } from "./videoConfig";
 import { analyzeStory, generateCharacterImage, generateSceneImage, generateVideo, generateSpeech, sleep, shouldGenerateCharacterBase } from "./videoService";
 import { translateToEnglish, translateMultiple, translateVideoContent } from "./translationService";
-import { mergeVideos, BGM_OPTIONS, SUBTITLE_STYLES, type BgmType, type SubtitleStyle } from "./videoMergeService";
+import { mergeVideos, startAsyncMerge, getMergeTaskStatus, BGM_OPTIONS, SUBTITLE_STYLES, type BgmType, type SubtitleStyle } from "./videoMergeService";
 import { notifyOwner } from "./_core/notification";
 import { createBatchJob, getBatchJob, updateBatchTask, getAllBatchJobs, deleteBatchJob, estimateBatchTime, calculateMaxConcurrency } from "./batchService";
 import { createLongVideoTask, getLongVideoTask, updateLongVideoTask, updateSegment, startNextBatch, getBatchApiKey, isTaskCompleted, getUserLongVideoTasks, deleteLongVideoTask, getTaskStats, calculateSegmentCount, calculateBatchCount, BATCH_SIZE, SEGMENT_DURATION, type LongVideoTask, type Segment, type Batch } from "./segmentBatchService";
@@ -601,400 +601,87 @@ export const appRouter = router({
 
   // 長視頻生成路由（按時長分段生成）
   longVideo: router({
-    // 獲取配置信息
-    getConfig: publicProcedure.query(() => ({
-      batchSize: BATCH_SIZE,
-      segmentDuration: SEGMENT_DURATION,
-      maxDurationMinutes: 60,
-      supportedDurations: [1, 2, 3, 5, 7, 10, 15, 20, 30],
-    })),
-
-    // 計算片段和批次數量
-    calculate: publicProcedure
-      .input(z.object({
-        durationMinutes: z.number().min(0.1).max(60), // 允許最小 6 秒 (0.1 分鐘)
-      }))
+    // 獲取任務
+    get: publicProcedure
+      .input(z.object({ taskId: z.string() }))
       .query(({ input }) => {
-        const totalSegments = calculateSegmentCount(input.durationMinutes);
-        const totalBatches = calculateBatchCount(totalSegments);
-        return {
-          durationMinutes: input.durationMinutes,
-          durationSeconds: input.durationMinutes * 60,
-          totalSegments,
-          totalBatches,
-          segmentDuration: SEGMENT_DURATION,
-          batchSize: BATCH_SIZE,
-        };
+        return getLongVideoTask(input.taskId);
       }),
 
-    // 創建長視頻生成任務 (暫時改為 public 以便測試)
-    create: publicProcedure
-      .input(z.object({
-        durationMinutes: z.number().min(0.1).max(60), // 允許最小 6 秒 (0.1 分鐘)
-        story: z.string().min(5, "故事至少需要 5 個字符"),
-        characterDescription: z.string().optional(),
-        visualStyle: z.string().optional(),
-        language: z.enum(["cantonese", "mandarin", "english"]).default("cantonese"),
-        voiceActorId: z.string().default("cantonese-male-narrator"),
-        speedMode: z.enum(["fast", "quality"]).default("fast"),
-        storyMode: z.enum(["character", "scene"]).default("character"),
-        llmModel: z.string().default("gpt-4o-mini"), // LLM 模型名稱
-        videoModel: z.string().default("veo-3.1"), // 視頻生成模型
-        imageModel: z.string().default("midjourney-v6"), // 圖片生成模型
-        bgmType: z.string().default("none"), // 背景音樂類型
-        subtitleStyle: z.string().default("none"), // 字幕樣式
-        // 媒體設定
-        videoPercent: z.number().default(100), // 視頻比例
-        imagePercent: z.number().default(0), // 圖片比例
-        imageDuration: z.string().default("3s"), // 圖片顯示時長
-        // 字幕設定
-        subtitleEnabled: z.boolean().default(true), // 是否啟用字幕
-        subtitleMode: z.enum(["auto", "manual", "none"]).default("auto"), // 字幕模式
-        subtitleFont: z.string().default("noto-sans-tc"), // 字幕字體
-        subtitleFontSize: z.string().default("medium"), // 字幕大小
-        subtitleFontColor: z.string().default("white"), // 字幕顏色
-        subtitleBoxStyle: z.string().default("shadow"), // 字幕框樣式
-        subtitlePosition: z.string().default("bottom-center"), // 字幕位置
-        // 訪客 sessionId（用於歷史記錄）
-        sessionId: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        // 未登入時使用默認用戶 ID 0
-        const userId = ctx.user?.id ?? 0;
-        // 訪客模式下使用 sessionId
-        const sessionId = !ctx.user ? input.sessionId : undefined;
-        const task = createLongVideoTask(
-          userId as number,
-          input.durationMinutes,
-          input.story,
-          {
-            characterDescription: input.characterDescription,
-            visualStyle: input.visualStyle,
-            language: input.language,
-            voiceActorId: input.voiceActorId,
-            speedMode: input.speedMode,
-            storyMode: input.storyMode,
-            llmModel: input.llmModel,
-            videoModel: input.videoModel,
-            imageModel: input.imageModel,
-            bgmType: input.bgmType,
-            subtitleStyle: input.subtitleStyle,
-            // 媒體設定
-            videoPercent: input.videoPercent,
-            imagePercent: input.imagePercent,
-            imageDuration: input.imageDuration,
-            // 字幕設定
-            subtitleEnabled: input.subtitleEnabled,
-            subtitleMode: input.subtitleMode,
-            subtitleFont: input.subtitleFont,
-            subtitleFontSize: input.subtitleFontSize,
-            subtitleFontColor: input.subtitleFontColor,
-            subtitleBoxStyle: input.subtitleBoxStyle,
-            subtitlePosition: input.subtitlePosition,
-          }
-        );
-
-        // 創建歷史記錄（數據庫持久化）
-        await createHistoryRecord({
-          userId: userId ? userId as number : undefined,
-          sessionId: sessionId, // 訪客模式使用 sessionId
-          taskId: task.id,
-          taskType: "video",
-          title: input.story.substring(0, 50) + (input.story.length > 50 ? "..." : ""),
-          inputParams: {
-            story: input.story,
-            characterDescription: input.characterDescription,
-            visualStyle: input.visualStyle,
-            language: input.language,
-            voiceActorId: input.voiceActorId,
-            duration: input.durationMinutes * 60,
-            segmentCount: task.totalSegments,
-          },
-          modelsUsed: {
-            llm: input.llmModel,
-            video: input.videoModel,
-            image: input.imageModel,
-            voice: input.voiceActorId,
-          },
-        });
-
-        // 異步開始處理（不阻塞響應）
-        processLongVideoTask(task.id).catch(console.error);
-
-        return {
-          taskId: task.id,
-          totalSegments: task.totalSegments,
-          totalBatches: task.totalBatches,
-          message: "任務已創建，正在分析故事...",
-        };
+    // ✅ 新增：檢查合併任務狀態
+    checkMergeStatus: publicProcedure
+      .input(z.object({ mergeTaskId: z.string() }))
+      .query(({ input }) => {
+        const status = getMergeTaskStatus(input.mergeTaskId);
+        return status || { status: "failed", error: "任務不存在", progress: 0 };
       }),
 
-    // 獲取任務狀態 (改為 public 以支援訪客模式)
-    getStatus: publicProcedure
-      .input(z.object({ taskId: z.string() }))
-      .query(({ ctx, input }) => {
-        const task = getLongVideoTask(input.taskId);
-        if (!task) {
-          throw new Error("任務不存在");
-        }
-        // 訪客模式下跳過用戶檢查
-        const userId = ctx.user?.id ?? 0;
-        if (task.userId !== userId && task.userId !== 0) {
-          throw new Error("無權訪問此任務");
-        }
-        return task;
-      }),
-
-    // 獲取任務統計信息 (改為 public 以支援訪客模式)
-    getStats: publicProcedure
-      .input(z.object({ taskId: z.string() }))
-      .query(({ ctx, input }) => {
-        const task = getLongVideoTask(input.taskId);
-        if (!task) {
-          throw new Error("任務不存在");
-        }
-        // 訪客模式下跳過用戶檢查
-        const userId = ctx.user?.id ?? 0;
-        if (task.userId !== userId && task.userId !== 0) {
-          throw new Error("無權訪問此任務");
-        }
-        return getTaskStats(input.taskId);
-      }),
-
-    // 獲取用戶的所有長視頻任務
-    getHistory: protectedProcedure
-      .input(z.object({
-        limit: z.number().min(1).max(50).default(10),
-      }))
-      .query(({ ctx, input }) => {
-        const tasks = getUserLongVideoTasks(ctx.user.id as number);
-        return tasks.slice(0, input.limit);
-      }),
-
-    // 刪除任務
-    delete: protectedProcedure
-      .input(z.object({ taskId: z.string() }))
-      .mutation(({ ctx, input }) => {
-        const task = getLongVideoTask(input.taskId);
-        if (!task) {
-          throw new Error("任務不存在");
-        }
-        if (task.userId !== ctx.user.id) {
-          throw new Error("無權刪除此任務");
-        }
-        const success = deleteLongVideoTask(input.taskId);
-        return { success };
-      }),
-
-    // 合併長視頻
+    // 合併視頻 - ✅ 已改為異步模式
     merge: publicProcedure
       .input(z.object({
         taskId: z.string(),
-        narrationVolume: z.number().min(0).max(100).default(80),
-        bgmVolume: z.number().min(0).max(100).default(10),
-        originalVolume: z.number().min(0).max(100).default(10),
-        // 新增：允許前端直接傳遞片段 URL，當任務記錄丟失時使用
+        narrationVolume: z.number().default(80),
+        bgmVolume: z.number().default(30),
+        originalVolume: z.number().default(50),
         videoUrls: z.array(z.string()).optional(),
-        // ✅ 新增：旁白音頻 URL，用於合併時混入旁白
         audioUrls: z.array(z.string()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const task = getLongVideoTask(input.taskId);
-        
-        // 如果任務不存在但有傳遞 videoUrls，直接使用傳遞的 URL
         let videoUrls: string[] = [];
-        let audioUrls: string[] = []; // ✅ 新增：旁白音頻 URL
+        let audioUrls: string[] = [];
         let narrations: string[] = [];
-        let taskIdForLog = input.taskId;
-        
+        const taskIdForLog = input.taskId.substring(0, 8);
+
         if (task) {
-          // 訪客模式下跳過用戶檢查
           const userId = ctx.user?.id ?? 0;
           if (task.userId !== userId && task.userId !== 0) {
             throw new Error("無權訪問此任務");
           }
-
-          // 獲取所有已完成的片段
           const completedSegments = task.segments.filter(seg => seg.status === "completed" && seg.videoUrl);
           if (completedSegments.length === 0) {
             throw new Error("沒有已完成的片段可以合併");
           }
-          videoUrls = completedSegments.map(seg => seg.videoUrl!);
-          
-          // ✅ 新增：從任務中獲取旁白音頻 URL
-          // ✅ 調試：打印每個片段的 audioUrl 狀態
-          console.log(`[LongVideo ${taskIdForLog}] ✅ 調試：檢查片段 audioUrl 狀態`);
-          completedSegments.forEach((seg, i) => {
-            console.log(`  片段 ${seg.id}: audioUrl = ${seg.audioUrl ? seg.audioUrl.substring(0, 50) + '...' : '(空)'}`);
-          });
-          
-          // ✅ 修復：優先從任務片段獲取 audioUrls，因為任務片段的數據更可靠
+          videoUrls = completedSegments.map(seg => seg.videoUrl);
           const taskAudioUrls = completedSegments.map(seg => seg.audioUrl || "");
-          const validTaskAudioUrls = taskAudioUrls.filter(url => url && url.startsWith("http"));
-          
-          // 檢查前端傳遞的 audioUrls
           const inputAudioUrls = input.audioUrls || [];
-          const validInputAudioUrls = inputAudioUrls.filter(url => url && url.startsWith("http"));
-          
-          console.log(`[LongVideo ${taskIdForLog}] audioUrls 來源比較:`);
-          console.log(`  • 任務片段: ${validTaskAudioUrls.length}/${taskAudioUrls.length} 個有效`);
-          console.log(`  • 前端傳遞: ${validInputAudioUrls.length}/${inputAudioUrls.length} 個有效`);
-          
-          // ✅ 改進：選擇有效音頻更多的來源，並保持與視頻片段的對應關係
-          // 注意：需要保持索引對應，所以不能只用過濾後的數組
-          if (validTaskAudioUrls.length >= validInputAudioUrls.length) {
-            console.log(`[LongVideo ${taskIdForLog}] ✅ 使用任務片段的 audioUrls (更可靠)`);
-            // 保持原始數組，空字符串表示該片段無音頻
-            audioUrls = taskAudioUrls;
-          } else if (inputAudioUrls.length === completedSegments.length) {
-            console.log(`[LongVideo ${taskIdForLog}] 使用前端傳遞的 audioUrls`);
+          if (inputAudioUrls.length === completedSegments.length) {
             audioUrls = inputAudioUrls;
           } else {
-            console.log(`[LongVideo ${taskIdForLog}] ✅ 默認使用任務片段的 audioUrls`);
             audioUrls = taskAudioUrls;
           }
-          
-          // ✅ 新增：詳細記錄最終使用的 audioUrls
-          console.log(`[LongVideo ${taskIdForLog}] 最終 audioUrls:`);
-          audioUrls.forEach((url, i) => {
-            const status = url && url.startsWith("http") ? "✅" : "⚠️";
-            console.log(`  ${status} 片段 ${i + 1}: ${url ? url.substring(0, 60) + '...' : '(空)'}`);
-          });
           narrations = completedSegments.map(seg => seg.narration || "");
         } else if (input.videoUrls && input.videoUrls.length > 0) {
-          // 任務不存在但有傳遞 URL，使用傳遞的 URL
-          console.log(`[LongVideo ${input.taskId}] 任務記錄已丟失，使用前端傳遞的 ${input.videoUrls.length} 個片段 URL`);
           videoUrls = input.videoUrls;
-          // ✅ 新增：使用前端傳遞的旁白音頻 URL
           audioUrls = input.audioUrls || input.videoUrls.map(() => "");
           narrations = input.videoUrls.map(() => "");
         } else {
           throw new Error("任務不存在，請重新生成視頻");
         }
 
-        console.log(`[LongVideo ${taskIdForLog}] 開始合併 ${videoUrls.length} 個片段...`);
+        const mergeTaskId = `merge_${input.taskId}_${Date.now()}`;
         
-        // ✅ 新增：詳細記錄每個片段的 audioUrl
-        console.log(`[LongVideo ${taskIdForLog}] 音頻 URL 詳情:`);
-        audioUrls.forEach((url, i) => {
-          console.log(`  片段 ${i + 1}: ${url ? url.substring(0, 60) + '...' : '(空)'}`);
-        });
+        // 🚀 啟動異步合併任務
+        startAsyncMerge({
+          videoUrls: videoUrls,
+          audioUrls: audioUrls,
+          narrations: narrations,
+          bgmType: (task?.bgmType || "none") as BgmType,
+          subtitleStyle: (task?.subtitleStyle || "none") as SubtitleStyle,
+          narrationVolume: input.narrationVolume,
+          bgmVolume: input.bgmVolume,
+          originalVolume: input.originalVolume,
+        }, mergeTaskId);
 
-        // ✅ 新增：合併前詳細驗證
-        console.log(`\n📊 [LongVideo ${taskIdForLog}] 合併前驗證:`);
-        console.log(`  • 視頻片段數: ${videoUrls.length}`);
-        console.log(`  • 音頻片段數: ${audioUrls.length}`);
-        
-        // 檢查音頻 URL
-        const validAudioUrls = audioUrls.filter(url => url && url.startsWith("http"));
-        const missingAudioCount = audioUrls.length - validAudioUrls.length;
-        
-        if (missingAudioCount > 0) {
-          console.warn(`  ⚠️ 警告: ${missingAudioCount} 個片段缺少有效的音頻 URL`);
-        }
-        
-        console.log(`  • 有效音頻片段: ${validAudioUrls.length}/${audioUrls.length}`);
-        console.log(`  • 背景音樂類型: ${task?.bgmType || "none"}`);
-        console.log(`  • 配音音量: ${input.narrationVolume}%`);
-        console.log(`  • 背景音樂音量: ${input.bgmVolume}%`);
-        console.log(`  • 原視頻音量: ${input.originalVolume}%`);
+        console.log(`[LongVideo ${taskIdForLog}] 🚀 已啟動異步合併任務: ${mergeTaskId}`);
 
-        try {
-          // 🔍 合併診斷報告
-          console.log(`========== 🔍 合併診斷報告 (trpc.longVideo.generate) ==========`);
-          console.log(`任務 ID: ${task?.id}`);
-          console.log(`有效視頻: ${videoUrls.length}`);
-          console.log(`有效音頻: ${audioUrls.filter(u => u).length}`);
-          console.log(`============================================================`);
-
-          // 調用視頻合併服務
-          console.log(`[LongVideo ${taskIdForLog}] 合併參數: videoUrls=${videoUrls.length}, audioUrls=${audioUrls.length}`);
-          const mergeResult = await mergeVideos({
-            videoUrls: videoUrls,
-            audioUrls: audioUrls, // ✅ 確保傳遞音頻 URL
-            narrations: narrations,
-            bgmType: (task?.bgmType || "none") as BgmType,
-            subtitleStyle: (task?.subtitleStyle || "none") as SubtitleStyle,
-            narrationVolume: input.narrationVolume,
-            bgmVolume: input.bgmVolume,
-            originalVolume: input.originalVolume,
-          });
-
-          // 關鍵結案日誌：打印合併結果結構
-          console.log(`[VideoMerge][Result]`, {
-            success: mergeResult.success,
-            mode: mergeResult.mode,
-            hasVideoUrl: Boolean(mergeResult.videoUrl),
-            segmentCount: mergeResult.segmentUrls?.length ?? 0,
-            error: mergeResult.error?.slice(0, 120),
-          });
-
-          // 如果任務存在，更新任務狀態
-          if (task) {
-            updateLongVideoTask(task.id, {
-              status: mergeResult.success ? "completed" : "merge_failed",
-              progress: 100,
-              finalVideoUrl: mergeResult.success ? mergeResult.videoUrl : undefined,
-              segmentUrls: mergeResult.segmentUrls,
-              completedAt: new Date().toISOString(),
-            });
-          }
-
-          // ✅ 新增：詳細日誌追蹤返回的 URL
-          console.log(`[LongVideo ${taskIdForLog}] 視頻合併${mergeResult.success ? '成功' : '失敗'}`);
-          console.log(`[LongVideo ${taskIdForLog}] 📤 返回結果:`, {
-            success: mergeResult.success,
-            videoUrl: mergeResult.videoUrl ? mergeResult.videoUrl.substring(0, 100) + '...' : '(null)',
-            mode: mergeResult.mode,
-            duration: mergeResult.duration,
-            segmentCount: mergeResult.segmentUrls?.length || 0,
-          });
-          
-          // ✅ 新增：驗證返回的 URL 是否為合併後的文件（包含 "merged_" 前綴）
-          if (mergeResult.success && mergeResult.videoUrl) {
-            const isMergedUrl = mergeResult.videoUrl.includes('merged_');
-            if (!isMergedUrl) {
-              console.warn(`[LongVideo ${taskIdForLog}] ⚠️ 警告: 返回的 URL 不包含 'merged_'，可能是原始片段 URL`);
-              console.warn(`[LongVideo ${taskIdForLog}] URL: ${mergeResult.videoUrl}`);
-            }
-          }
-
-          return {
-            success: mergeResult.success,
-            videoUrl: mergeResult.success ? mergeResult.videoUrl : undefined,
-            duration: mergeResult.duration,
-            mode: mergeResult.mode,
-            segmentUrls: mergeResult.segmentUrls,
-            message: mergeResult.message,
-            error: mergeResult.error,
-          };
-        } catch (error: any) {
-          console.error(`[LongVideo ${taskIdForLog}] 視頻合併失敗:`, error);
-          
-          // ✅ 修復：合併失敗時返回 success: false，不再假裝成功
-          // 同時返回 segmentUrls 讓前端可以下載片段
-          if (task) {
-            updateLongVideoTask(task.id, {
-              status: "merge_failed",
-              progress: 100,
-              segmentUrls: videoUrls,
-              completedAt: new Date().toISOString(),
-            });
-          }
-          
-          console.log(`[LongVideo ${taskIdForLog}] 合併失敗，返回 ${videoUrls.length} 個片段供下載`);
-          
-          return {
-            success: false,
-            videoUrl: undefined,
-            segmentUrls: videoUrls || [],
-            error: error.message || "視頻合併失敗",
-            mode: "error",
-          };
-        }
+        return { 
+          success: true, 
+          mergeTaskId,
+          message: "合併任務已啟動，請輪詢進度" 
+        };
       }),
   }),
-
   // 配音員相關路由
   voice: router({
     // 獲取所有配音員（完整配置）

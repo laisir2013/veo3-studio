@@ -122,6 +122,38 @@ const mergeStats: MergeStats = {
   emergencyActivations: 0,
 };
 
+// ✅ 新增：異步任務狀態管理
+export interface MergeTaskStatus {
+  id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  videoUrl?: string;
+  error?: string;
+  startTime: number;
+  endTime?: number;
+}
+
+const mergeTasks = new Map<string, MergeTaskStatus>();
+
+/**
+ * 獲取任務狀態
+ */
+export function getMergeTaskStatus(taskId: string): MergeTaskStatus | undefined {
+  return mergeTasks.get(taskId);
+}
+
+/**
+ * 更新任務進度
+ */
+function updateTaskProgress(taskId: string, progress: number, status: MergeTaskStatus['status'] = 'processing') {
+  const task = mergeTasks.get(taskId);
+  if (task) {
+    task.progress = progress;
+    task.status = status;
+    console.log(`[MergeTask] 任务 ${taskId} 进度: ${progress}% (${status})`);
+  }
+}
+
 // 睡眠函數
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -133,9 +165,55 @@ export function getMergeStats(): MergeStats {
 }
 
 /**
+ * ✅ 新增：異步啟動合併任務
+ */
+export function startAsyncMerge(options: MergeOptions, taskId: string): void {
+  const task: MergeTaskStatus = {
+    id: taskId,
+    status: 'pending',
+    progress: 0,
+    startTime: Date.now(),
+  };
+  mergeTasks.set(taskId, task);
+
+  // 🚀 異步執行，不阻塞主線程
+  (async () => {
+    try {
+      updateTaskProgress(taskId, 5, 'processing');
+      const result = await mergeVideos(options, taskId);
+      
+      if (result.success && result.videoUrl) {
+        const currentTask = mergeTasks.get(taskId);
+        if (currentTask) {
+          currentTask.status = 'completed';
+          currentTask.progress = 100;
+          currentTask.videoUrl = result.videoUrl;
+          currentTask.endTime = Date.now();
+        }
+      } else {
+        const currentTask = mergeTasks.get(taskId);
+        if (currentTask) {
+          currentTask.status = 'failed';
+          currentTask.error = result.error || '合併失敗';
+          currentTask.endTime = Date.now();
+        }
+      }
+    } catch (error) {
+      console.error(`[AsyncMerge] 任務 ${taskId} 異常:`, error);
+      const currentTask = mergeTasks.get(taskId);
+      if (currentTask) {
+        currentTask.status = 'failed';
+        currentTask.error = error instanceof Error ? error.message : String(error);
+        currentTask.endTime = Date.now();
+      }
+    }
+  })();
+}
+
+/**
  * 主要合併函數 - 三層容錯機制
  */
-export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
+export async function mergeVideos(options: MergeOptions, taskId?: string): Promise<MergeResult> {
   const {
     videoUrls,
     audioUrls = [],
@@ -221,6 +299,7 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
 
   // 第一層：雲端合併
   try {
+    if (taskId) updateTaskProgress(taskId, 10);
     const cloudResult = await tryCloudMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (cloudResult.success) {
       console.log(`[VideoMerge] ✅ 雲端合併成功`);
@@ -235,7 +314,8 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
 
   // 第二層：本地 FFmpeg 合併（標準化後再合併）
   try {
-    const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    if (taskId) updateTaskProgress(taskId, 20);
+    const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
       const result: MergeResult = { ...localResult, mode: "local" };
@@ -496,6 +576,7 @@ async function tryLocalFFmpegMerge(
 
     // 步驟 3：合併標準化後的視頻
     console.log(`[LocalFFmpeg] 🎬 合併視頻...`);
+    if (taskId) updateTaskProgress(taskId, 85);
     const outputPath = `${tempDir}/merged_output.mp4`;
     
     // ✅ 新增：檢查每個片段的時長和大小
@@ -622,9 +703,10 @@ async function tryLocalFFmpegMerge(
       return { success: false, error: "合併後文件過小，可能失敗" };
     }
 
-    // 步驟 4：上傳合併後的視頻
-    console.log(`[LocalFFmpeg] 📤 上傳合併後的視頻...`);
-    const uploadedUrl = await uploadMergedVideo(outputPath);
+    // 步驟 4：上傳到 R2
+    console.log(`[LocalFFmpeg] 📤 上傳最終視頻到 R2...`);
+    if (taskId) updateTaskProgress(taskId, 95);
+    const videoUrl = await uploadMergedVideo(outputPath);
 
     // 清理臨時文件
     try {
