@@ -2102,6 +2102,11 @@ Total: ${segmentCount} segments of 8 seconds each`;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-background/95 overflow-x-hidden">
+      {/* 版本標記 - 混合內容模式已啟用 */}
+      <div className="w-full bg-red-500/90 text-white text-center py-2 text-sm font-bold animate-pulse">
+        🚀 VEO3-HYBRID-READY (v1.1.0-hybrid) - 混合內容模式已啟用
+      </div>
+      
       {/* Header - 響應式設計 */}
       <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container px-3 sm:px-6 flex h-14 sm:h-16 items-center justify-between">
