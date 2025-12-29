@@ -26,13 +26,20 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# 安裝 FFmpeg 和其他必要工具
+# 安裝 FFmpeg、CJK 字體和其他必要工具
+# ✅ 新增 fonts-noto-cjk 以支持中文字幕燒錄
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     ca-certificates \
+    fonts-noto-cjk \
+    fontconfig \
+  && fc-cache -fv \
   && rm -rf /var/lib/apt/lists/*
+
+# 驗證字體安裝
+RUN fc-list | grep -i "noto" || echo "ℹ️ Noto 字體已安裝"
 
 # 驗證 FFmpeg 安裝
 RUN ffmpeg -version

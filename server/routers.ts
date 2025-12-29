@@ -816,19 +816,21 @@ export const appRouter = router({
           
           // ✅ 修復：優先從任務片段獲取 audioUrls，因為任務片段的數據更可靠
           const taskAudioUrls = completedSegments.map(seg => seg.audioUrl || "");
-          const validTaskAudioCount = taskAudioUrls.filter(url => url && url.startsWith("http")).length;
+          const validTaskAudioUrls = taskAudioUrls.filter(url => url && url.startsWith("http"));
           
           // 檢查前端傳遞的 audioUrls
           const inputAudioUrls = input.audioUrls || [];
-          const validInputAudioCount = inputAudioUrls.filter(url => url && url.startsWith("http")).length;
+          const validInputAudioUrls = inputAudioUrls.filter(url => url && url.startsWith("http"));
           
           console.log(`[LongVideo ${taskIdForLog}] audioUrls 來源比較:`);
-          console.log(`  • 任務片段: ${validTaskAudioCount}/${taskAudioUrls.length} 個有效`);
-          console.log(`  • 前端傳遞: ${validInputAudioCount}/${inputAudioUrls.length} 個有效`);
+          console.log(`  • 任務片段: ${validTaskAudioUrls.length}/${taskAudioUrls.length} 個有效`);
+          console.log(`  • 前端傳遞: ${validInputAudioUrls.length}/${inputAudioUrls.length} 個有效`);
           
-          // ✅ 修復：選擇有效音頻更多的來源
-          if (validTaskAudioCount >= validInputAudioCount) {
+          // ✅ 改進：選擇有效音頻更多的來源，並保持與視頻片段的對應關係
+          // 注意：需要保持索引對應，所以不能只用過濾後的數組
+          if (validTaskAudioUrls.length >= validInputAudioUrls.length) {
             console.log(`[LongVideo ${taskIdForLog}] ✅ 使用任務片段的 audioUrls (更可靠)`);
+            // 保持原始數組，空字符串表示該片段無音頻
             audioUrls = taskAudioUrls;
           } else if (inputAudioUrls.length === completedSegments.length) {
             console.log(`[LongVideo ${taskIdForLog}] 使用前端傳遞的 audioUrls`);
@@ -837,6 +839,13 @@ export const appRouter = router({
             console.log(`[LongVideo ${taskIdForLog}] ✅ 默認使用任務片段的 audioUrls`);
             audioUrls = taskAudioUrls;
           }
+          
+          // ✅ 新增：詳細記錄最終使用的 audioUrls
+          console.log(`[LongVideo ${taskIdForLog}] 最終 audioUrls:`);
+          audioUrls.forEach((url, i) => {
+            const status = url && url.startsWith("http") ? "✅" : "⚠️";
+            console.log(`  ${status} 片段 ${i + 1}: ${url ? url.substring(0, 60) + '...' : '(空)'}`);
+          });
           narrations = completedSegments.map(seg => seg.narration || "");
         } else if (input.videoUrls && input.videoUrls.length > 0) {
           // 任務不存在但有傳遞 URL，使用傳遞的 URL
