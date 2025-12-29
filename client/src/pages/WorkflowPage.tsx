@@ -168,6 +168,10 @@ export default function WorkflowPage() {
 
   // 步驟8：生成設定
   const [selectedSpeedMode, setSelectedSpeedMode] = useState<"fast" | "quality">("fast");
+  
+  // 步驟8.5：混合內容比例選擇
+  const [imagePercent, setImagePercent] = useState(60);
+  const [enableHybridMode, setEnableHybridMode] = useState(false);
 
   // 步驟9-11：生成狀態
   const [taskId, setTaskId] = useState<string | null>(null);
@@ -185,9 +189,6 @@ export default function WorkflowPage() {
   // 步驟14：合併
   const [isMerging, setIsMerging] = useState(false);
   const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null);
-  const [activeMergeTaskId, setActiveMergeTaskId] = useState<string | null>(null);
-  const [mergeProgress, setMergeProgress] = useState(0);
-  const [mergeError, setMergeError] = useState<string | null>(null);
 
   // 步驟15：SEO
   const [seoResult, setSeoResult] = useState<SeoResult | null>(null);
@@ -264,7 +265,6 @@ export default function WorkflowPage() {
         taskId: savedState.taskId,
         currentStep: savedState.currentStep,
         segmentsCount: savedState.segments?.length,
-        hasMergedVideoUrl: !!savedState.mergedVideoUrl,
       });
       
       // 恢復所有狀態
@@ -281,65 +281,18 @@ export default function WorkflowPage() {
       setVideoVolume(savedState.videoVolume ?? 50);
       setStepStatuses(savedState.stepStatuses || {});
       setSubtitles(savedState.subtitles || []);
-      
-      // ✅ 修復：不恢復 mergedVideoUrl，避免緩存污染
-      // 如果有舊的合併 URL，顯示警告提示用戶重新合併
-      if (savedState.mergedVideoUrl) {
-        console.log('[LocalStorage] ⚠️ 檢測到舊的合併 URL，不恢復，需要重新合併');
-        toast.warning("檢測到舊的合併結果，請重新合併視頻", { duration: 5000 });
-      }
-      // setMergedVideoUrl(savedState.mergedVideoUrl || null); // ← 不再恢復
+      setMergedVideoUrl(savedState.mergedVideoUrl || null);
       
       toast.info("已恢復上次的工作進度", { duration: 3000 });
     }
   }, []);
 
-
-  // 🚀 異步合併進度輪詢
-  const checkMergeStatus = trpc.longVideo.checkMergeStatus.useQuery(
-    { mergeTaskId: activeMergeTaskId || "" },
-    {
-      enabled: !!activeMergeTaskId,
-      refetchInterval: (data) => {
-        if (data?.status === "completed" || data?.status === "failed") return false;
-        return 2000; // 每 2 秒輪詢一次
-      },
-      onSuccess: (data) => {
-        if (data) {
-          setMergeProgress(data.progress);
-          if (data.status === "completed" && data.videoUrl) {
-            console.log("[Merge Success] 異步合併完成:", data.videoUrl);
-            
-            // 添加緩存破壞參數
-            const urlWithCacheBuster = data.videoUrl.includes("?") 
-              ? `${data.videoUrl}&_t=${Date.now()}&_v=${Math.random().toString(36).substring(7)}` 
-              : `${data.videoUrl}?_t=${Date.now()}&_v=${Math.random().toString(36).substring(7)}`;
-            
-            setMergedVideoUrl(urlWithCacheBuster);
-            setActiveMergeTaskId(null);
-            setIsMerging(false);
-            setIsProcessing(false);
-            toast.success("視頻合併成功！");
-          } else if (data.status === "failed") {
-            console.error("[Merge Error] 異步合併失敗:", data.error);
-            setMergeError(data.error || "合併失敗");
-            setActiveMergeTaskId(null);
-            setIsMerging(false);
-            setIsProcessing(false);
-            toast.error(`合併失敗: ${data.error}`);
-          }
-        }
-      },
-    }
-  );
-
   // 💾 當關鍵狀態變化時自動保存
-  // ✅ 修復：添加 mergedVideoUrl 到依賴數組，確保合併後的 URL 被保存
   useEffect(() => {
     if (taskId && segments.length > 0) {
       saveStateToStorage();
     }
-  }, [taskId, currentStep, segments, stepStatuses, mergedVideoUrl, saveStateToStorage]);
+  }, [taskId, currentStep, segments, stepStatuses, saveStateToStorage]);
 
   // 💾 清除已保存的狀態（用於開始新任務）
   const clearSavedState = useCallback(() => {
@@ -692,22 +645,15 @@ export default function WorkflowPage() {
   useEffect(() => {
     if (taskStatus) {
       if (taskStatus.segments) {
-        // ✅ 修復：使用 id 匹配而不是索引匹配，避免順序不一致導致的問題
-        setSegments(prev => prev.map((seg) => {
-          // 通過 id 查找對應的服務器片段
-          const serverSeg = taskStatus.segments.find((s: any) => s.id === seg.id);
+        setSegments(prev => prev.map((seg, i) => {
+          const serverSeg = taskStatus.segments[i];
           if (serverSeg) {
-            // ✅ 調試：記錄 audioUrl 同步狀態
-            if (serverSeg.audioUrl && !seg.audioUrl) {
-              console.log(`[同步] 片段 ${seg.id} 獲得 audioUrl: ${serverSeg.audioUrl.substring(0, 50)}...`);
-            }
             return {
               ...seg,
               status: serverSeg.status,
               videoUrl: serverSeg.videoUrl,
               audioUrl: serverSeg.audioUrl,
               imageUrl: serverSeg.imageUrl,
-              narration: serverSeg.narration, // ✅ 新增：同步旁白文字
             };
           }
           return seg;
@@ -843,10 +789,11 @@ export default function WorkflowPage() {
 
   // 步驟14：合併視頻（三層容錯機制）
   const handleMergeVideo = async () => {
+    // ✅ 修復：合併前先清空舊狀態，避免緩存汙染
     setMergedVideoUrl(null);
-    setMergeError(null);
-    setMergeProgress(0);
     
+    // 🔍 GPT 建議：添加詳細的調試日誌
+    // 按 id 排序確保順序一致
     const completedSegments = segments
       .filter(seg => seg.status === "completed" && seg.videoUrl)
       .sort((a, b) => a.id - b.id);
@@ -854,9 +801,37 @@ export default function WorkflowPage() {
     const completedVideoUrls = completedSegments.map(seg => seg.videoUrl!);
     const completedAudioUrls = completedSegments.map(seg => seg.audioUrl || "");
     
+    console.log("[Merge Check] 合併前檢查:", {
+      taskId,
+      totalSegments: segments.length,
+      completedCount: completedSegments.length,
+      statuses: segments.map(s => ({ id: s.id, status: s.status, hasVideoUrl: !!s.videoUrl, hasAudioUrl: !!s.audioUrl })),
+      videoUrls: completedVideoUrls.map(url => ({
+        url: url?.substring(0, 60) + "...",
+        ext: url?.split("?")[0].split(".").pop()?.toLowerCase(),
+      })),
+      audioUrls: completedAudioUrls.map(url => url ? url.substring(0, 60) + "..." : "(無)"),
+    });
+
+    // 檢查是否有可用的視頻
     if (completedVideoUrls.length === 0) {
       toast.error("未檢測到有效片段，請確保至少有一個片段生成成功");
+      console.error("[Merge Check] ❌ 沒有可用的視頻 URL");
+      // 不要跳回 Step 11，讓用戶自己決定
       return;
+    }
+
+    // 檢查缺少旁白音頻的片段（警告但不阻止）
+    const missingAudioSegments = completedSegments.filter(seg => !seg.audioUrl);
+    if (missingAudioSegments.length > 0) {
+      const missingIds = missingAudioSegments.map(s => s.id).join(", ");
+      console.warn(`[Merge Check] ⚠️ 以下片段缺少旁白音頻: ${missingIds}`);
+      toast.warning(`片段 ${missingIds} 缺少旁白音頻，合併後可能沒有旁白聲音`, { duration: 5000 });
+    }
+
+    if (!taskId) {
+      // 如果沒有 taskId 但有視頻 URL，仍然嘗試合併
+      console.log("[Merge Check] ⚠️ taskId 丟失，但有視頻 URL，嘗試使用備用方案");
     }
 
     setIsMerging(true);
@@ -864,27 +839,50 @@ export default function WorkflowPage() {
 
     try {
       const result = await mergeVideo.mutateAsync({
-        taskId: taskId || "unknown",
+        taskId: taskId || "unknown", // 即使沒有 taskId 也嘗試
         narrationVolume,
         bgmVolume,
         originalVolume: videoVolume,
-        videoUrls: completedVideoUrls,
-        audioUrls: completedAudioUrls,
+        videoUrls: completedVideoUrls, // 傳遞片段 URL
+        audioUrls: completedAudioUrls, // ✅ 新增：傳遞旁白音頻 URL
       });
 
-      if (result.success && result.mergeTaskId) {
-        console.log("[Merge Task] 異步任務已啟動:", result.mergeTaskId);
-        setActiveMergeTaskId(result.mergeTaskId);
-        toast.info("視頻合併任務已啟動，正在後台處理...");
+      console.log("[Merge Result]", result);
+
+      // ✅ 修復：只有 success: true 且有 videoUrl 才算成功
+      if (result.success && result.videoUrl) {
+        setMergedVideoUrl(result.videoUrl);
+        
+        // 檢查是否為本地模式
+        if (result.mode === "local") {
+          toast.success("視頻合併成功！（本地 FFmpeg）");
+        } else {
+          toast.success("視頻合併成功！");
+        }
       } else {
-        throw new Error(result.error || "無法啟動合併任務");
+        // ✅ 修復：合併失敗時不設置 mergedVideoUrl，但顯示片段下載連結
+        const errorMsg = result.error || "合併失敗";
+        const segmentCount = result.segmentUrls?.length || completedVideoUrls.length;
+        
+        // 顯示錯誤信息，並提示用戶可以下載片段
+        if (result.segmentUrls && result.segmentUrls.length > 0) {
+          toast.error(
+            `合併失敗：${errorMsg}。但您可以下載 ${segmentCount} 個獨立片段。`,
+            { duration: 8000 }
+          );
+          console.log("[合併失敗] 片段 URLs:", result.segmentUrls);
+        } else {
+          toast.error(`合併失敗：${errorMsg}`);
+        }
+        console.error("[Merge Error]", result.error);
       }
     } catch (error: any) {
       console.error("[Merge Exception]", error);
-      toast.error("合併啟動失敗：" + error.message);
-      setIsMerging(false);
-      setIsProcessing(false);
+      toast.error("合併失敗：" + error.message);
     }
+
+    setIsMerging(false);
+    setIsProcessing(false);
   };
 
   const handleStep14Complete = () => {
@@ -981,10 +979,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
     }
   };
 
-  // 導航函數 - 🔧 修復：允許回到任何已完成或當前步驟之前的步驟
+  // 導航函數
   const handleStepClick = (stepId: number) => {
-    // 允許回到任何已完成的步驟，或當前步驟之前的步驟
-    if (stepId <= currentStep || stepStatuses[stepId] === "completed") {
+    if (stepId <= currentStep || stepStatuses[stepId - 1] === "completed") {
       setCurrentStep(stepId);
     }
   };
@@ -1494,6 +1491,65 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </div>
               </div>
 
+              {/* 混合內容比例選擇 */}
+              <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30 space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2 text-base">
+                    <ImageIcon className="w-4 h-4" />
+                    混合內容模式 (可選)
+                  </Label>
+                  <button
+                    onClick={() => setEnableHybridMode(!enableHybridMode)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      enableHybridMode ? "bg-purple-500" : "bg-zinc-700"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                        enableHybridMode ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+                
+                {enableHybridMode && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-zinc-400">
+                      使用 Nano Banana AI 生成圖片（更快更便宜），混合 VectorEngine 影片（高質量）。
+                    </p>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">圖片比例</span>
+                        <span className="text-lg font-bold text-purple-400">{imagePercent}%</span>
+                      </div>
+                      <Slider
+                        value={[imagePercent]}
+                        onValueChange={(value) => setImagePercent(value[0])}
+                        min={0}
+                        max={100}
+                        step={5}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* 比例預覽 */}
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      <div className="p-2 bg-blue-500/20 rounded border border-blue-500/30 text-center">
+                        <div className="text-xs text-zinc-400">圖片片段</div>
+                        <div className="text-xl font-bold text-blue-400">{Math.ceil((segments.length * imagePercent) / 100)}</div>
+                        <div className="text-[10px] text-zinc-600">Nano Banana</div>
+                      </div>
+                      <div className="p-2 bg-cyan-500/20 rounded border border-cyan-500/30 text-center">
+                        <div className="text-xs text-zinc-400">影片片段</div>
+                        <div className="text-xl font-bold text-cyan-400">{Math.floor((segments.length * (100 - imagePercent)) / 100)}</div>
+                        <div className="text-[10px] text-zinc-600">VectorEngine</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <Button
                 onClick={handleStartGeneration}
                 disabled={isProcessing}
@@ -1511,6 +1567,35 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   </>
                 )}
               </Button>
+            </div>
+          </StepCard>
+        );
+
+      case 8.5:
+        return (
+          <StepCard step={{ id: 8.5, title: "混合內容比例", description: "選擇圖片和影片的混合比例" }} status={status} isCurrent={true}>
+            <div className="space-y-6">
+              {/* 混合模式切換 */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  啟用混合內容模式
+                </Label>
+                <p className="text-sm text-zinc-400">
+                  混合模式可以降低成本。圖片使用 Nano Banana AI 生成（更快更便宜），影片使用 VectorEngine 生成（高質量）。
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setEnableHybridMode(!enableHybridMode)}
+                    className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${enableHybridMode ? "bg-purple-500" : "bg-zinc-700"}`}
+                  >
+                    <span
+                      className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${enableHybridMode ? "translate-x-7" : "translate-x-1"}`}
+                    />
+                  </button>
+                  <span className="text-sm font-medium">{enableHybridMode ? "已啟用" : "已禁用"}</span>
+                </div>
+              </div>
             </div>
           </StepCard>
         );
@@ -1876,44 +1961,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     src={mergedVideoUrl}
                     className="w-full aspect-video rounded-lg border border-zinc-700"
                     controls
-                    onLoadedMetadata={(e) => {
-                      const video = e.target as HTMLVideoElement;
-                      console.log(`[Video] ⏱️ 視頻時長: ${video.duration.toFixed(2)}秒`);
-                      // ✅ 驗證視頻時長是否正確
-                      const expectedDuration = segments.filter(s => s.status === "completed").length * 8;
-                      if (video.duration < expectedDuration * 0.8) {
-                        console.warn(`[Video] ⚠️ 視頻時長異常: 預期 ${expectedDuration}秒，實際 ${video.duration.toFixed(2)}秒`);
-                      }
-                    }}
-                    onError={(e) => {
-                      console.error('[Video] ❌ 視頻加載失敗:', e);
-                    }}
                   />
-                  {/* 🔧 調試信息：顯示合併後的視頻 URL */}
-                  <div className="text-xs text-zinc-500 break-all p-2 bg-zinc-900/50 rounded border border-zinc-800 space-y-1">
-                    <div>
-                      <span className="text-zinc-400">📤 合併視頻 URL:</span>
-                      <br />
-                      <code className="text-emerald-400/80">{mergedVideoUrl}</code>
-                    </div>
-                    <div>
-                      <span className="text-zinc-400">🔍 URL 驗證:</span>
-                      <span className={mergedVideoUrl.includes('merged') ? 'text-emerald-400 ml-2' : 'text-yellow-400 ml-2'}>
-                        {mergedVideoUrl.includes('merged') ? '✅ 包含 merged' : '⚠️ 不包含 merged（可能是原始片段）'}
-                      </span>
-                    </div>
-                  </div>
-                  {/* ✅ 新增：清除並重新合併按鈕 */}
-                  <Button
-                    variant="outline"
-                    className="w-full text-xs text-zinc-400 hover:text-zinc-200"
-                    onClick={() => {
-                      setMergedVideoUrl(null);
-                      toast.info("已清除合併結果，請重新合併");
-                    }}
-                  >
-                    🔄 清除並重新合併
-                  </Button>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"
@@ -1928,8 +1976,6 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       onClick={() => {
                         setStepStatuses(prev => ({ ...prev, 14: "completed" }));
                         setCurrentStep(15);
-                        // ✅ 強制保存一次狀態，防止刷新回退
-                        setTimeout(saveStateToStorage, 100);
                       }}
                     >
                       <ChevronRight className="w-4 h-4 mr-1 sm:mr-2" />
@@ -1938,90 +1984,24 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {activeMergeTaskId ? (
-                    <div className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700 space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2 text-emerald-400">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="font-medium">正在後台合併視頻...</span>
-                        </div>
-                        <span className="text-zinc-400">{mergeProgress}%</span>
-                      </div>
-                      <Progress value={mergeProgress} className="h-2" />
-                      <p className="text-xs text-zinc-500 text-center">
-                        這可能需要幾分鐘，具體取決於影片長度。您可以留在本頁面查看進度。
-                      </p>
-                    </div>
-                  ) : (
-                    <Button
-                      onClick={handleMergeVideo}
-                      disabled={isMerging || completedVideoUrls.length === 0}
-                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500"
-                    >
-                      {isMerging ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          正在啟動合併任務...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-4 h-4 mr-2" />
-                          合併為完整影片
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  
-                  {mergeError && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400 text-xs">
-                      <AlertCircle className="w-4 h-4" />
-                      <span>合併失敗: {mergeError}</span>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="ml-auto h-6 text-[10px] hover:bg-red-500/20"
-                        onClick={handleMergeVideo}
-                      >
-                        重試
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 🔧 重新開始按鈕 - 移出條件限制，確保隨時可用 */}
-              <div className="mt-6 pt-6 border-t border-zinc-800">
                 <Button
-                  variant="ghost"
-                  className="w-full text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                  onClick={() => {
-                    if (window.confirm("確定要放棄當前進度並重新開始新任務嗎？")) {
-                      clearSavedState();
-                      setCurrentStep(1);
-                      setTopic("");
-                      setSelectedLanguage("cantonese");
-                      setSelectedVoiceActor(null);
-                      setStoryOutline("");
-                      setSegments([]);
-                      setVideoTitle("");
-                      setMergedVideoUrl(null);
-                      setSeoResult(null);
-                      setTaskId(null);
-                      setSubtitles([]);
-                      setStepStatuses({
-                        1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
-                        6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
-                        11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
-                      });
-                      toast.success("已重置，可以開始新任務！");
-                    }
-                  }}
+                  onClick={handleMergeVideo}
+                  disabled={isMerging}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-500"
                 >
-                  <RotateCcw className="w-3 h-3 mr-2" />
-                  放棄進度並重新開始新任務
+                  {isMerging ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      合併中...
+                    </>
+                  ) : (
+                    <>
+                      <Merge className="w-4 h-4 mr-2" />
+                      開始合併視頻
+                    </>
+                  )}
                 </Button>
-              </div>
+              )}
             </div>
           </StepCard>
         );
@@ -2126,31 +2106,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
       <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container px-3 sm:px-6 flex h-14 sm:h-16 items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* 🔧 Logo 可點擊回到首頁 */}
-            <button
-              onClick={() => {
-                clearSavedState();
-                setCurrentStep(1);
-                setTopic("");
-                setSelectedLanguage("cantonese");
-                setSelectedVoiceActor(null);
-                setStoryOutline("");
-                setSegments([]);
-                setVideoTitle("");
-                setMergedVideoUrl(null);
-                setSeoResult(null);
-                setTaskId(null);
-                setSubtitles([]);
-                setStepStatuses({
-                  1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
-                  6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
-                  11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
-                });
-                toast.success("已重置，可以開始新任務！");
-              }}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
-              title="點擊回到首頁"
-            >
+            <div className="flex items-center gap-2">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                 <Film className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
               </div>
@@ -2160,7 +2116,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </h1>
                 <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">15步工作流程</p>
               </div>
-            </button>
+            </div>
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
