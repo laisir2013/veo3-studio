@@ -2052,7 +2052,31 @@ Total: ${segmentCount} segments of 8 seconds each`;
       <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container px-3 sm:px-6 flex h-14 sm:h-16 items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-4">
-            <div className="flex items-center gap-2">
+            {/* 🔧 Logo 可點擊回到首頁 */}
+            <button
+              onClick={() => {
+                clearSavedState();
+                setCurrentStep(1);
+                setTopic("");
+                setSelectedLanguage("cantonese");
+                setSelectedVoiceActor(null);
+                setStoryOutline("");
+                setSegments([]);
+                setVideoTitle("");
+                setMergedVideoUrl(null);
+                setSeoResult(null);
+                setTaskId(null);
+                setSubtitles([]);
+                setStepStatuses({
+                  1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
+                  6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
+                  11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
+                });
+                toast.success("已重置，可以開始新任務！");
+              }}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+              title="點擊回到首頁"
+            >
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                 <Film className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
               </div>
@@ -2062,7 +2086,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </h1>
                 <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">15步工作流程</p>
               </div>
-            </div>
+            </button>
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
