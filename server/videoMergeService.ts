@@ -639,10 +639,16 @@ async function tryLocalFFmpegMerge(
     } catch {}
 
     if (uploadedUrl) {
+      // ✅ 新增：驗證上傳的 URL 是否包含 'merged'
+      const isMergedUrl = uploadedUrl.includes('merged');
+      console.log(`[LocalFFmpeg] 🔍 URL 驗證: ${isMergedUrl ? '✅ 包含 merged' : '⚠️ 不包含 merged'}`);
+      console.log(`[LocalFFmpeg] 📤 返回 URL: ${uploadedUrl}`);
+      
       mergeStats.localSuccesses++;
       return { success: true, videoUrl: uploadedUrl };
     }
 
+    console.error(`[LocalFFmpeg] ❌ 上傳失敗，沒有獲得 URL`);
     return { success: false, error: "上傳失敗" };
 
   } catch (error: any) {

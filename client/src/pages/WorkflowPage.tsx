@@ -261,6 +261,7 @@ export default function WorkflowPage() {
         taskId: savedState.taskId,
         currentStep: savedState.currentStep,
         segmentsCount: savedState.segments?.length,
+        hasMergedVideoUrl: !!savedState.mergedVideoUrl,
       });
       
       // 恢復所有狀態
@@ -277,7 +278,14 @@ export default function WorkflowPage() {
       setVideoVolume(savedState.videoVolume ?? 50);
       setStepStatuses(savedState.stepStatuses || {});
       setSubtitles(savedState.subtitles || []);
-      setMergedVideoUrl(savedState.mergedVideoUrl || null);
+      
+      // ✅ 修復：不恢復 mergedVideoUrl，避免緩存污染
+      // 如果有舊的合併 URL，顯示警告提示用戶重新合併
+      if (savedState.mergedVideoUrl) {
+        console.log('[LocalStorage] ⚠️ 檢測到舊的合併 URL，不恢復，需要重新合併');
+        toast.warning("檢測到舊的合併結果，請重新合併視頻", { duration: 5000 });
+      }
+      // setMergedVideoUrl(savedState.mergedVideoUrl || null); // ← 不再恢復
       
       toast.info("已恢復上次的工作進度", { duration: 3000 });
     }
@@ -858,12 +866,20 @@ export default function WorkflowPage() {
         // ✅ 新增：詳細日誌追蹤 URL
         console.log("[Merge Success] 🎉 合併成功!");
         console.log("[Merge Success] 📤 返回的 videoUrl:", result.videoUrl);
-        console.log("[Merge Success] 🔍 URL 是否包含 'merged_':", result.videoUrl.includes('merged_'));
+        
+        // ✅ 驗證 URL 是否為合併後的文件
+        const isMergedUrl = result.videoUrl.includes('merged');
+        console.log("[Merge Success] 🔍 URL 是否包含 'merged':", isMergedUrl);
+        
+        if (!isMergedUrl) {
+          console.warn("[Merge Success] ⚠️ 警告: 返回的 URL 不包含 'merged'，可能是原始片段 URL");
+          toast.warning("視頻合併可能不完整，請檢查結果", { duration: 5000 });
+        }
         
         // ✅ 新增：添加緩存破壞參數，避免瀏覽器緩存舊視頻
         const urlWithCacheBuster = result.videoUrl.includes('?') 
-          ? `${result.videoUrl}&_t=${Date.now()}` 
-          : `${result.videoUrl}?_t=${Date.now()}`;
+          ? `${result.videoUrl}&_t=${Date.now()}&_v=${Math.random().toString(36).substring(7)}` 
+          : `${result.videoUrl}?_t=${Date.now()}&_v=${Math.random().toString(36).substring(7)}`;
         
         console.log("[Merge Success] 🔄 添加緩存破壞後的 URL:", urlWithCacheBuster);
         
@@ -871,9 +887,9 @@ export default function WorkflowPage() {
         
         // 檢查是否為本地模式
         if (result.mode === "local") {
-          toast.success("視頻合併成功！（本地 FFmpeg）");
+          toast.success(`視頻合併成功！（本地 FFmpeg，時長: ${result.duration || 0}秒）`);
         } else {
-          toast.success("視頻合併成功！");
+          toast.success(`視頻合併成功！（時長: ${result.duration || 0}秒）`);
         }
       } else {
         // ✅ 修復：合併失敗時不設置 mergedVideoUrl，但顯示片段下載連結
@@ -1890,13 +1906,44 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     src={mergedVideoUrl}
                     className="w-full aspect-video rounded-lg border border-zinc-700"
                     controls
+                    onLoadedMetadata={(e) => {
+                      const video = e.target as HTMLVideoElement;
+                      console.log(`[Video] ⏱️ 視頻時長: ${video.duration.toFixed(2)}秒`);
+                      // ✅ 驗證視頻時長是否正確
+                      const expectedDuration = segments.filter(s => s.status === "completed").length * 8;
+                      if (video.duration < expectedDuration * 0.8) {
+                        console.warn(`[Video] ⚠️ 視頻時長異常: 預期 ${expectedDuration}秒，實際 ${video.duration.toFixed(2)}秒`);
+                      }
+                    }}
+                    onError={(e) => {
+                      console.error('[Video] ❌ 視頻加載失敗:', e);
+                    }}
                   />
                   {/* 🔧 調試信息：顯示合併後的視頻 URL */}
-                  <div className="text-xs text-zinc-500 break-all p-2 bg-zinc-900/50 rounded border border-zinc-800">
-                    <span className="text-zinc-400">📤 合併視頻 URL:</span>
-                    <br />
-                    <code className="text-emerald-400/80">{mergedVideoUrl}</code>
+                  <div className="text-xs text-zinc-500 break-all p-2 bg-zinc-900/50 rounded border border-zinc-800 space-y-1">
+                    <div>
+                      <span className="text-zinc-400">📤 合併視頻 URL:</span>
+                      <br />
+                      <code className="text-emerald-400/80">{mergedVideoUrl}</code>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400">🔍 URL 驗證:</span>
+                      <span className={mergedVideoUrl.includes('merged') ? 'text-emerald-400 ml-2' : 'text-yellow-400 ml-2'}>
+                        {mergedVideoUrl.includes('merged') ? '✅ 包含 merged' : '⚠️ 不包含 merged（可能是原始片段）'}
+                      </span>
+                    </div>
                   </div>
+                  {/* ✅ 新增：清除並重新合併按鈕 */}
+                  <Button
+                    variant="outline"
+                    className="w-full text-xs text-zinc-400 hover:text-zinc-200"
+                    onClick={() => {
+                      setMergedVideoUrl(null);
+                      toast.info("已清除合併結果，請重新合併");
+                    }}
+                  >
+                    🔄 清除並重新合併
+                  </Button>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"
