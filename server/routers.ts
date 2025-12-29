@@ -2286,6 +2286,17 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                 // 合併視頻
                 const audioUrls = completedSegments.map(seg => seg.audioUrl || '');
                 
+                // 🔍 記錄合併前的片段 URL
+                const segmentVideoUrls = completedSegments.map(seg => seg.videoUrl!);
+                console.log(`\n[Merge] 🎬 合併前片段 URL:`);
+                segmentVideoUrls.forEach((url, i) => {
+                  console.log(`  片段 ${i + 1}: ${url?.substring(0, 80)}...`);
+                });
+                console.log(`[Merge] 🎤 合併前音頻 URL:`);
+                audioUrls.forEach((url, i) => {
+                  console.log(`  音頻 ${i + 1}: ${url ? url.substring(0, 80) + '...' : '(空)'}`);
+                });
+                
                 const mergeResult = await mergeVideos({
                   videoUrls: completedSegments.map(seg => seg.videoUrl!),
                   audioUrls: audioUrls,
@@ -2302,6 +2313,41 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                   segmentCount: mergeResult.segmentUrls?.length ?? 0,
                   error: mergeResult.error?.slice(0, 120),
                 });
+                
+                // 🔍 合併結果 URL 驗證
+                console.log(`\n========== 📹 合併結果驗證 ==========`);
+                console.log(`合併成功: ${mergeResult.success}`);
+                console.log(`合併模式: ${mergeResult.mode}`);
+                console.log(`返回的 videoUrl: ${mergeResult.videoUrl?.substring(0, 80) || '(空)'}`);                
+                
+                // 對比驗證：確保合併後的 URL 不等於任何一個片段 URL
+                const isSegmentUrl = segmentVideoUrls.some(segUrl => segUrl === mergeResult.videoUrl);
+                if (isSegmentUrl) {
+                  console.error(`🚨 嚴重錯誤：合併後返回的是片段 URL，而不是新的合併 URL！`);
+                  console.error(`  這意味著合併失敗，但錯誤地返回了原始片段。`);
+                }
+                
+                // 檢查 URL 是否是新生成的（通過時間戳）
+                if (mergeResult.videoUrl) {
+                  const urlTimestamp = mergeResult.videoUrl.match(/(\d{13})/)?.[0];
+                  const currentTimestamp = Date.now();
+                  const urlAge = urlTimestamp ? currentTimestamp - parseInt(urlTimestamp) : null;
+                  
+                  console.log(`URL 時間戳: ${urlTimestamp || '(找不到)'}`);                  
+                  if (urlAge !== null) {
+                    console.log(`URL 年齡: ${Math.floor(urlAge / 1000)}秒前`);
+                    if (urlAge > 300000) { // 超過 5 分鐘
+                      console.warn(`⚠️ 警告：返回的 URL 似乎是舊的！(${Math.floor(urlAge / 60000)}分鐘前)`);
+                    }
+                  }
+                }
+                
+                console.log(`\n片段 URL 列表:`);
+                segmentVideoUrls.forEach((url, i) => {
+                  console.log(`  片段 ${i + 1}: ${url?.substring(0, 60)}...`);
+                });
+                console.log(`合併後 URL: ${mergeResult.videoUrl?.substring(0, 60) || '(空)'}...`);
+                console.log(`========================================\n`);
                 
                 // 重要修復：只有合併成功時才使用 mergedUrl，否則不設置 finalVideoUrl
                 // 不要用第一個片段的 URL 假裝成合併後的視頻
