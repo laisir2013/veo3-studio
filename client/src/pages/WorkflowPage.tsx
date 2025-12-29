@@ -1958,62 +1958,67 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       onClick={() => {
                         setStepStatuses(prev => ({ ...prev, 14: "completed" }));
                         setCurrentStep(15);
+                        // ✅ 強制保存一次狀態，防止刷新回退
+                        setTimeout(saveStateToStorage, 100);
                       }}
                     >
                       <ChevronRight className="w-4 h-4 mr-1 sm:mr-2" />
                       下一步：SEO 優化
                     </Button>
                   </div>
-                  {/* 🔧 新增：重新開始按鈕 */}
-                  <div className="mt-4 pt-4 border-t border-zinc-700">
-                    <Button
-                      variant="outline"
-                      className="w-full text-xs sm:text-sm"
-                      onClick={() => {
-                        clearSavedState();
-                        setCurrentStep(1);
-                        setTopic("");
-                        setSelectedLanguage("cantonese");
-                        setSelectedVoiceActor(null);
-                        setStoryOutline("");
-                        setSegments([]);
-                        setVideoTitle("");
-                        setMergedVideoUrl(null);
-                        setSeoResult(null);
-                        setTaskId(null);
-                        setSubtitles([]);
-                        setStepStatuses({
-                          1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
-                          6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
-                          11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
-                        });
-                        toast.success("已重置，可以開始新任務！");
-                      }}
-                    >
-                      <RotateCcw className="w-4 h-4 mr-1 sm:mr-2" />
-                      重新開始新任務
-                    </Button>
-                  </div>
                 </div>
               ) : (
                 <Button
                   onClick={handleMergeVideo}
-                  disabled={isMerging}
+                  disabled={mergeVideo.isLoading || completedVideoUrls.length === 0}
                   className="w-full bg-gradient-to-r from-emerald-500 to-teal-500"
                 >
-                  {isMerging ? (
+                  {mergeVideo.isLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      合併中...
+                      正在合併視頻...
                     </>
                   ) : (
                     <>
-                      <Merge className="w-4 h-4 mr-2" />
-                      開始合併視頻
+                      <Play className="w-4 h-4 mr-2" />
+                      合併為完整影片
                     </>
                   )}
                 </Button>
               )}
+
+              {/* 🔧 重新開始按鈕 - 移出條件限制，確保隨時可用 */}
+              <div className="mt-6 pt-6 border-t border-zinc-800">
+                <Button
+                  variant="ghost"
+                  className="w-full text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                  onClick={() => {
+                    if (window.confirm("確定要放棄當前進度並重新開始新任務嗎？")) {
+                      clearSavedState();
+                      setCurrentStep(1);
+                      setTopic("");
+                      setSelectedLanguage("cantonese");
+                      setSelectedVoiceActor(null);
+                      setStoryOutline("");
+                      setSegments([]);
+                      setVideoTitle("");
+                      setMergedVideoUrl(null);
+                      setSeoResult(null);
+                      setTaskId(null);
+                      setSubtitles([]);
+                      setStepStatuses({
+                        1: "pending", 2: "pending", 3: "pending", 4: "pending", 5: "pending",
+                        6: "pending", 7: "pending", 8: "pending", 9: "pending", 10: "pending",
+                        11: "pending", 12: "pending", 13: "pending", 14: "pending", 15: "pending",
+                      });
+                      toast.success("已重置，可以開始新任務！");
+                    }
+                  }}
+                >
+                  <RotateCcw className="w-3 h-3 mr-2" />
+                  放棄進度並重新開始新任務
+                </Button>
+              </div>
             </div>
           </StepCard>
         );
