@@ -601,6 +601,55 @@ export const appRouter = router({
 
   // 長視頻生成路由（按時長分段生成）
   longVideo: router({
+    // 創建長視頻任務
+    create: publicProcedure
+      .input(z.object({
+        durationMinutes: z.number(),
+        story: z.string(),
+        language: z.enum(["cantonese", "mandarin", "english"]).default("cantonese"),
+        voiceActorId: z.string().optional(),
+        speedMode: z.enum(["fast", "quality"]).default("fast"),
+        sessionId: z.string().optional(),
+        imagePercent: z.number().min(0).max(100).optional(),
+        enableHybridMode: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const userId = ctx.user?.id ?? 0;
+        const imagePercent = input.enableHybridMode ? (input.imagePercent ?? 60) : 0;
+        const videoPercent = 100 - imagePercent;
+        console.log(`[LongVideo] 創建任務 - 混合模式: ${input.enableHybridMode}, 圖片比例: ${imagePercent}%, 視頻比例: ${videoPercent}%`);
+        const task = createLongVideoTask(userId, input.durationMinutes, input.story, {
+          language: input.language,
+          voiceActorId: input.voiceActorId,
+          speedMode: input.speedMode,
+          imagePercent: imagePercent,
+          videoPercent: videoPercent,
+        });
+        startNextBatch(task.id);
+        return { taskId: task.id, success: true };
+      }),
+
+    // 獲取任務狀態
+    getStatus: publicProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(({ input }) => {
+        const task = getLongVideoTask(input.taskId);
+        if (!task) {
+          return { status: "not_found", segments: [] };
+        }
+        return {
+          status: task.status,
+          progress: task.progress,
+          segments: task.segments.map(seg => ({
+            id: seg.id,
+            status: seg.status,
+            videoUrl: seg.videoUrl,
+            audioUrl: seg.audioUrl,
+            imageUrl: seg.imageUrl,
+          })),
+        };
+      }),
+
     // 獲取任務
     get: publicProcedure
       .input(z.object({ taskId: z.string() }))
