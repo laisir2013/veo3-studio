@@ -806,10 +806,37 @@ export const appRouter = router({
             throw new Error("沒有已完成的片段可以合併");
           }
           videoUrls = completedSegments.map(seg => seg.videoUrl!);
+          
           // ✅ 新增：從任務中獲取旁白音頻 URL
-          audioUrls = input.audioUrls && input.audioUrls.length === completedSegments.length
-            ? input.audioUrls
-            : completedSegments.map(seg => seg.audioUrl || "");
+          // ✅ 調試：打印每個片段的 audioUrl 狀態
+          console.log(`[LongVideo ${taskIdForLog}] ✅ 調試：檢查片段 audioUrl 狀態`);
+          completedSegments.forEach((seg, i) => {
+            console.log(`  片段 ${seg.id}: audioUrl = ${seg.audioUrl ? seg.audioUrl.substring(0, 50) + '...' : '(空)'}`);
+          });
+          
+          // ✅ 修復：優先從任務片段獲取 audioUrls，因為任務片段的數據更可靠
+          const taskAudioUrls = completedSegments.map(seg => seg.audioUrl || "");
+          const validTaskAudioCount = taskAudioUrls.filter(url => url && url.startsWith("http")).length;
+          
+          // 檢查前端傳遞的 audioUrls
+          const inputAudioUrls = input.audioUrls || [];
+          const validInputAudioCount = inputAudioUrls.filter(url => url && url.startsWith("http")).length;
+          
+          console.log(`[LongVideo ${taskIdForLog}] audioUrls 來源比較:`);
+          console.log(`  • 任務片段: ${validTaskAudioCount}/${taskAudioUrls.length} 個有效`);
+          console.log(`  • 前端傳遞: ${validInputAudioCount}/${inputAudioUrls.length} 個有效`);
+          
+          // ✅ 修復：選擇有效音頻更多的來源
+          if (validTaskAudioCount >= validInputAudioCount) {
+            console.log(`[LongVideo ${taskIdForLog}] ✅ 使用任務片段的 audioUrls (更可靠)`);
+            audioUrls = taskAudioUrls;
+          } else if (inputAudioUrls.length === completedSegments.length) {
+            console.log(`[LongVideo ${taskIdForLog}] 使用前端傳遞的 audioUrls`);
+            audioUrls = inputAudioUrls;
+          } else {
+            console.log(`[LongVideo ${taskIdForLog}] ✅ 默認使用任務片段的 audioUrls`);
+            audioUrls = taskAudioUrls;
+          }
           narrations = completedSegments.map(seg => seg.narration || "");
         } else if (input.videoUrls && input.videoUrls.length > 0) {
           // 任務不存在但有傳遞 URL，使用傳遞的 URL

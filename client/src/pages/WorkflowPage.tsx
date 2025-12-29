@@ -641,15 +641,22 @@ export default function WorkflowPage() {
   useEffect(() => {
     if (taskStatus) {
       if (taskStatus.segments) {
-        setSegments(prev => prev.map((seg, i) => {
-          const serverSeg = taskStatus.segments[i];
+        // ✅ 修復：使用 id 匹配而不是索引匹配，避免順序不一致導致的問題
+        setSegments(prev => prev.map((seg) => {
+          // 通過 id 查找對應的服務器片段
+          const serverSeg = taskStatus.segments.find((s: any) => s.id === seg.id);
           if (serverSeg) {
+            // ✅ 調試：記錄 audioUrl 同步狀態
+            if (serverSeg.audioUrl && !seg.audioUrl) {
+              console.log(`[同步] 片段 ${seg.id} 獲得 audioUrl: ${serverSeg.audioUrl.substring(0, 50)}...`);
+            }
             return {
               ...seg,
               status: serverSeg.status,
               videoUrl: serverSeg.videoUrl,
               audioUrl: serverSeg.audioUrl,
               imageUrl: serverSeg.imageUrl,
+              narration: serverSeg.narration, // ✅ 新增：同步旁白文字
             };
           }
           return seg;

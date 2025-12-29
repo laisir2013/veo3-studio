@@ -64,6 +64,7 @@ export interface Segment {
   progress: number;
   videoUrl?: string;
   audioUrl?: string;
+  narration?: string; // ✅ 新增：旁白文字
   error?: string;
   startTime: number; // 片段開始時間（秒）
   endTime: number;   // 片段結束時間（秒）

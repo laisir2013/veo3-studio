@@ -142,10 +142,29 @@ export async function mergeVideos(options: MergeOptions): Promise<MergeResult> {
     originalVolume = 50,
   } = options;
 
+  // ✅ 詳細日誌：記錄合併參數
   console.log(`[VideoMerge] 🎬 開始合併流程`, {
     videoCount: videoUrls.length,
-    audioCount: audioUrls.filter(u => u).length,
+    audioCount: audioUrls.filter(u => u && u.startsWith("http")).length,
+    narrationCount: narrations.filter(n => n).length,
+    bgmType,
+    subtitleStyle,
+    narrationVolume,
+    bgmVolume,
+    originalVolume,
     timestamp: new Date().toISOString(),
+  });
+  
+  // ✅ 詳細日誌：打印每個音頻 URL
+  console.log(`[VideoMerge] 🎤 音頻 URL 詳情:`);
+  audioUrls.forEach((url, i) => {
+    console.log(`  片段 ${i + 1}: ${url ? url.substring(0, 80) + '...' : '(空)'}`);
+  });
+  
+  // ✅ 詳細日誌：打印每個旁白文字
+  console.log(`[VideoMerge] 📝 旁白文字詳情:`);
+  narrations.forEach((text, i) => {
+    console.log(`  片段 ${i + 1}: ${text ? text.substring(0, 50) + '...' : '(空)'}`);
   });
 
   // 過濾有效的視頻 URL
@@ -371,12 +390,21 @@ async function tryLocalFFmpegMerge(
         console.warn(`[LocalFFmpeg] ⚠️ 視頻 ${i + 1} 下載失敗，跳過`);
       }
 
-      // 下載對應的音頻
-      if (audioUrls[i] && audioUrls[i].startsWith("http")) {
+      // ✅ 下載對應的音頻
+      const audioUrl = audioUrls[i];
+      if (audioUrl && audioUrl.startsWith("http")) {
         const audioPath = `${tempDir}/audio_${i}.mp3`;
-        const audioDownloaded = await downloadVideoWithValidation(audioUrls[i], audioPath, tempDir);
-        downloadedAudioPaths.push(audioDownloaded ? audioPath : "");
+        console.log(`[LocalFFmpeg] 🎤 下載音頻 ${i + 1}: ${audioUrl.substring(0, 60)}...`);
+        const audioDownloaded = await downloadVideoWithValidation(audioUrl, audioPath, tempDir);
+        if (audioDownloaded) {
+          console.log(`[LocalFFmpeg] ✅ 音頻 ${i + 1} 下載成功: ${audioPath}`);
+          downloadedAudioPaths.push(audioPath);
+        } else {
+          console.warn(`[LocalFFmpeg] ⚠️ 音頻 ${i + 1} 下載失敗`);
+          downloadedAudioPaths.push("");
+        }
       } else {
+        console.log(`[LocalFFmpeg] ℹ️ 片段 ${i + 1} 無音頻 URL`);
         downloadedAudioPaths.push("");
       }
     }
@@ -398,9 +426,13 @@ async function tryLocalFFmpegMerge(
       
       console.log(`[LocalFFmpeg] 標準化視頻 ${i + 1}/${downloadedPaths.length}...`);
       
+      // ✅ 傳遞旁白文字和字幕樣式以支持字幕燒錄
+      const narrationText = narrations[i] || "";
       const normalized = await normalizeVideo(inputPath, normalizedPath, audioPath, {
         narrationVolume,
         originalVolume,
+        narration: narrationText,
+        subtitleStyle,
       });
       
       if (normalized) {
@@ -569,13 +601,99 @@ async function tryLocalFFmpegMerge(
 }
 
 /**
- * 標準化單個視頻
+ * 將旁白文字轉換為字幕格式（每行 8-10 字）
+ */
+function formatNarrationForSubtitle(narration: string, segmentDuration: number = 8): string {
+  if (!narration) return "";
+  
+  // 每行最多 10 個字
+  const maxCharsPerLine = 10;
+  const lines: string[] = [];
+  
+  for (let i = 0; i < narration.length; i += maxCharsPerLine) {
+    lines.push(narration.substring(i, i + maxCharsPerLine));
+  }
+  
+  // 計算每行的顯示時長
+  const timePerLine = segmentDuration / lines.length;
+  
+  return lines.map((line, i) => {
+    const startTime = i * timePerLine;
+    const endTime = (i + 1) * timePerLine;
+    return `${startTime.toFixed(2)}|${endTime.toFixed(2)}|${line}`;
+  }).join("\n");
+}
+
+/**
+ * 生成 ASS 字幕文件
+ */
+async function generateSubtitleFile(narration: string, outputPath: string, segmentDuration: number = 8): Promise<string | null> {
+  if (!narration) return null;
+  
+  const fs = await import("fs");
+  
+  // 每行最多 10 個字
+  const maxCharsPerLine = 10;
+  const lines: string[] = [];
+  
+  for (let i = 0; i < narration.length; i += maxCharsPerLine) {
+    lines.push(narration.substring(i, i + maxCharsPerLine));
+  }
+  
+  // 計算每行的顯示時長
+  const timePerLine = segmentDuration / lines.length;
+  
+  // 生成 ASS 字幕文件
+  const assContent = `[Script Info]
+Title: VEO3 Studio Subtitles
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans CJK TC,36,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${lines.map((line, i) => {
+    const startTime = i * timePerLine;
+    const endTime = (i + 1) * timePerLine;
+    const startStr = formatAssTime(startTime);
+    const endStr = formatAssTime(endTime);
+    return `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${line}`;
+  }).join("\n")}
+`;
+
+  try {
+    fs.writeFileSync(outputPath, assContent, "utf-8");
+    console.log(`[字幕] ✅ 生成字幕文件: ${outputPath}`);
+    return outputPath;
+  } catch (error: any) {
+    console.error(`[字幕] ❌ 生成字幕文件失敗:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * 格式化 ASS 時間
+ */
+function formatAssTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+/**
+ * 標準化單個視頻（包含旁白和字幕）
  */
 async function normalizeVideo(
   inputPath: string,
   outputPath: string,
   audioPath: string,
-  options: { narrationVolume: number; originalVolume: number }
+  options: { narrationVolume: number; originalVolume: number; narration?: string; subtitleStyle?: string }
 ): Promise<boolean> {
   const { exec } = await import("child_process");
   const { promisify } = await import("util");
@@ -584,18 +702,40 @@ async function normalizeVideo(
 
   try {
     let cmd: string;
+    const origVol = options.originalVolume / 100;
+    const narrVol = options.narrationVolume / 100;
+    const hasAudio = audioPath && fs.existsSync(audioPath);
+    const hasSubtitle = options.subtitleStyle && options.subtitleStyle !== "none" && options.narration;
+    
+    // ✅ 生成字幕文件（如果需要）
+    let subtitlePath = "";
+    if (hasSubtitle && options.narration) {
+      const tempDir = inputPath.substring(0, inputPath.lastIndexOf("/"));
+      subtitlePath = `${tempDir}/subtitle_${Date.now()}.ass`;
+      await generateSubtitleFile(options.narration, subtitlePath, 8);
+    }
+    
+    // 構建視頻濾鏡
+    let videoFilter = `scale=${NORMALIZE_CONFIG.width}:-2,fps=${NORMALIZE_CONFIG.fps}`;
+    
+    // ✅ 添加字幕濾鏡（如果有字幕文件）
+    if (subtitlePath && fs.existsSync(subtitlePath)) {
+      // 使用 ASS 字幕
+      const escapedPath = subtitlePath.replace(/:/g, "\\:").replace(/'/g, "\\'");
+      videoFilter += `,ass='${escapedPath}'`;
+      console.log(`[Normalize] ✅ 添加字幕: ${subtitlePath}`);
+    }
 
-    if (audioPath && fs.existsSync(audioPath)) {
+    if (hasAudio) {
       // 有旁白音頻：混合原音和旁白
-      const origVol = options.originalVolume / 100;
-      const narrVol = options.narrationVolume / 100;
+      console.log(`[Normalize] 🎤 混合旁白音頻: ${audioPath}`);
       
       cmd = [
         "ffmpeg", "-y",
         "-i", `"${inputPath}"`,
         "-i", `"${audioPath}"`,
         "-filter_complex",
-        `"[0:a]volume=${origVol}[a0];[1:a]volume=${narrVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout];[0:v]scale=${NORMALIZE_CONFIG.width}:-2,fps=${NORMALIZE_CONFIG.fps}[vout]"`,
+        `"[0:a]volume=${origVol}[a0];[1:a]volume=${narrVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout];[0:v]${videoFilter}[vout]"`,
         "-map", '"[vout]"',
         "-map", '"[aout]"',
         "-c:v", NORMALIZE_CONFIG.videoCodec,
@@ -610,10 +750,12 @@ async function normalizeVideo(
       ].join(" ");
     } else {
       // 無旁白音頻：只標準化視頻
+      console.log(`[Normalize] 📹 無旁白音頻，僅標準化視頻`);
+      
       cmd = [
         "ffmpeg", "-y",
         "-i", `"${inputPath}"`,
-        "-vf", `"scale=${NORMALIZE_CONFIG.width}:-2,fps=${NORMALIZE_CONFIG.fps}"`,
+        "-vf", `"${videoFilter}"`,
         "-c:v", NORMALIZE_CONFIG.videoCodec,
         "-preset", NORMALIZE_CONFIG.preset,
         "-crf", String(NORMALIZE_CONFIG.crf),
