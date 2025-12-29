@@ -2162,8 +2162,14 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               
               if (completedSegments.length > 0) {
                 // 合併視頻
+                // ✅ 修復：添加 audioUrls 參數
+                const audioUrls = completedSegments.map(seg => seg.audioUrl || '');
+                console.log(`[LongVideo ${taskId}] 準備合併，audioUrls:`, audioUrls);
+                console.log(`[LongVideo ${taskId}] 準備合併，narrations:`, completedSegments.map(seg => seg.narration || ''));
+                
                 const mergeResult = await mergeVideos({
                   videoUrls: completedSegments.map(seg => seg.videoUrl!),
+                  audioUrls: audioUrls,
                   narrations: completedSegments.map(seg => seg.narration || ''),
                   bgmType: (task.bgmType || 'none') as any,
                   subtitleStyle: (task.subtitleStyle || 'none') as any,
