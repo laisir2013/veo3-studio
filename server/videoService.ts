@@ -514,6 +514,41 @@ async function pollMidjourneyTask(taskId: string, maxAttempts = 60): Promise<str
 }
 
 // 生成視頻（帶備用鏈：Veo Pro → Veo Fast → Runway → Kling）
+
+/**
+ * 調用 VectorEngine 生成圖片
+ */
+export async function generateVectorImage(
+  prompt: string,
+  model: string = "flux-pro",
+  aspectRatio: string = "16:9"
+): Promise<string> {
+  const apiKey = getNextApiKey();
+  console.log(`[Image] 開始生成圖片: ${prompt.substring(0, 50)}...`);
+  
+  const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/v1/images/generations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model,
+      prompt: prompt,
+      n: 1,
+      size: aspectRatio === "16:9" ? "1280x720" : "720x1280",
+      response_format: "url",
+    }),
+  });
+
+  const data = await response.json();
+  if (!data.data || !data.data[0] || !data.data[0].url) {
+    throw new Error(data.error?.message || "圖片生成失敗");
+  }
+
+  console.log(`[Image] 圖片生成成功: ${data.data[0].url}`);
+  return data.data[0].url;
+}
 export async function generateVideo(
   imageUrl: string,
   prompt: string,
@@ -933,4 +968,63 @@ ${visualStyle ? `6. 視覺風格：${visualStyle}` : ""}
     console.error("[AI Scene] 場景生成失敗:", error);
     throw error;
   }
+}
+
+/**
+ * 調用 Fal.ai nano-banana 生成圖片 (VectorEngine 代理)
+ */
+export async function generateNanoBananaImage(
+  prompt: string
+): Promise<string> {
+  const apiKey = getNextApiKey();
+  console.log(`[Nano-Banana] 開始生成圖片: ${prompt.substring(0, 50)}...`);
+  
+  // 1. 發起生成請求
+  const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/fal-ai/nano-banana`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      prompt: prompt,
+      num_images: 1,
+    }),
+  });
+
+  let data = await response.json();
+  
+  // 2. 如果是異步隊列，開始輪詢
+  if (data.status === "IN_QUEUE" || data.status === "IN_PROGRESS") {
+    const statusUrl = data.status_url;
+    console.log(`[Nano-Banana] 任務排隊中，開始輪詢: ${statusUrl}`);
+    
+    let completed = false;
+    let attempts = 0;
+    const maxAttempts = 30; // 最多輪詢 30 次 (約 60 秒)
+    
+    while (!completed && attempts < maxAttempts) {
+      await sleep(2000); // 每 2 秒輪詢一次
+      const statusRes = await fetch(statusUrl, {
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      });
+      data = await statusRes.json();
+      
+      if (data.status === "COMPLETED") {
+        completed = true;
+      } else if (data.status === "FAILED") {
+        throw new Error("Nano-Banana 生成失敗");
+      }
+      attempts++;
+    }
+  }
+
+  // 3. 獲取最終 URL
+  const imageUrl = data.images?.[0]?.url || data.response_url || data.image_url;
+  if (!imageUrl) {
+    throw new Error("無法獲取 Nano-Banana 圖片 URL");
+  }
+
+  console.log(`[Nano-Banana] 圖片生成成功: ${imageUrl}`);
+  return imageUrl;
 }

@@ -1,19 +1,18 @@
 // VectorEngine API Keys（輪流使用避免限流）
 // 所有 13 個有效的 API Key
 export const API_KEYS = [
-  process.env.VECTORENGINE_API_KEY_1 || "sk-nwsjL79MgOjKO3UOrt1LGNoj2D5jWbcfCwoDsc8Utf2OOhUI",
-  process.env.VECTORENGINE_API_KEY_2 || "sk-0WSOTsnoaf0eNstC4pJOjrLNJjBTZi0DMYsKV6jaLOV4ydfX",
-  process.env.VECTORENGINE_API_KEY_3 || "sk-fX1KaFxYUxy6S7ouggSGeLLmLuoq1zDUQDGAxyVxrWJgtqQr",
-  process.env.VECTORENGINE_API_KEY_4 || "sk-DaOpIa2ho5AiWbdV6mzOaFWDZH1UlgASOspMRQtXIJxQqGhN",
-  process.env.VECTORENGINE_API_KEY_5 || "sk-15QTY6nSAiFca0FCP9Yks3xlmTvL2XZjck1MMPgNznGiBsXs",
-  process.env.VECTORENGINE_API_KEY_6 || "sk-T0qvRM5CIInHsskdqWV0f9Te9g8FKd7dUCfljaGWpOH4Q0Rk",
-  process.env.VECTORENGINE_API_KEY_7 || "sk-uNpzao62UqY6LxrFyMo3DPImXYL2wdjydEKuPWrh8EGXrvoI",
-  process.env.VECTORENGINE_API_KEY_8 || "sk-2gu2bPuvn8t6AC6wzk6NmkBIXaj34Zmvt9OpgabxQFRIW71H",
-  process.env.VECTORENGINE_API_KEY_9 || "sk-M6x6doe0uKMs9DpWTDIXATeSagxOwibEkBGZytl8KblvLW2U",
-  process.env.VECTORENGINE_API_KEY_10 || "sk-TRgLLnSrMqI5SuM5hkBuDeSyVYhrdppsG9Vk3grADVVryhqj",
-  process.env.VECTORENGINE_API_KEY_11 || "sk-YnfJNruhEpjzEOWNmIu9TjqMhOB01NLHy6thK6Zgb0bCQ5GT",
-  process.env.VECTORENGINE_API_KEY_12 || "sk-R8Zkzp274XV4Ni99H6I3RaBC7yJ8wUvbYTMETbllQYTLn9HS",
-  process.env.VECTORENGINE_API_KEY_13 || "sk-VC7kkQW6bxEvTvAHdsyXCWI2eyM9UIgwa9JzTXdNLP3b5yG3",
+  "sk-0WSOTsnoaf0eNstC4pJOjrLNJjBTZi0DMYsKV6jaLOV4ydfX",
+  "sk-fX1KaFxYUxy6S7ouggSGeLLmLuoq1zDUQDGAxyVxrWJgtqQr",
+  "sk-nwsjL79MgOjKO3UOrt1LGNoj2D5jWbcfCwoDsc8Utf2OOhUI",
+  "sk-15QTY6nSAiFca0FCP9Yks3xlmTvL2XZjck1MMPgNznGiBsXs",
+  "sk-DaOpIa2ho5AiWbdV6mzOaFWDZH1UlgASOspMRQtXIJxQqGhN",
+  "sk-T0qvRM5CIInHsskdqWV0f9Te9g8FKd7dUCfljaGWpOH4Q0Rk",
+  "sk-uNpzao62UqY6LxrFyMo3DPImXYL2wdjydEKuPWrh8EGXrvoI",
+  "sk-2gu2bPuvn8t6AC6wzk6NmkBIXaj34Zmvt9OpgabxQFRIW71H",
+  "sk-M6x6doe0uKMs9DpWTDIXATeSagxOwibEkBGZytl8KblvLW2U",
+  "sk-TRgLLnSrMqI5SuM5hkBuDeSyVYhrdppsG9Vk3grADVVryhqj",
+  "sk-R8Zkzp274XV4Ni99H6I3RaBC7yJ8wUvbYTMETbllQYTLn9HS",
+  "sk-VC7kkQW6bxEvTvAHdsyXCWI2eyM9UIgwa9JzTXdNLP3b5yG3",
 ].filter(Boolean) as string[];
 
 // API Key 輪流索引

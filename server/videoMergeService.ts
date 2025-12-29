@@ -32,6 +32,13 @@ const NORMALIZE_CONFIG = {
 };
 
 // ✅ 新增：FFmpeg 執行配置（適應低內存環境）
+
+// ✅ 新增：分段合併配置
+
+// ✅ 新增：並行分段合併配置
+const CHUNK_SIZE = 15;           // 每 15 個片段為一組
+const MAX_CONCURRENT_CHUNKS = 2; // 最大並行處理組數（適應 Render 512MB 內存）
+
 const FFMPEG_EXEC_CONFIG = {
   timeout: 180000,        // 3 分鐘超時
   maxBuffer: 10 * 1024 * 1024, // ✅ 降低到 10MB（原 50MB）
@@ -443,6 +450,99 @@ async function tryLocalFFmpegMerge(
   resolution: string,
   narrationVolume: number,
   bgmVolume: number,
+  originalVolume: number,
+  taskId?: string
+): Promise<MergeResult> {
+  const totalSegments = videoUrls.length;
+  
+  // 如果片段數量較少，直接進行常規合併
+  if (totalSegments <= CHUNK_SIZE) {
+    return await performActualMerge(
+      videoUrls, audioUrls, narrations, bgmType, subtitleStyle, 
+      outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, 
+      0, 100, taskId
+    );
+  }
+
+  // 🚀 超長影片：執行並行分段合併邏輯
+  console.log(`[ParallelMerge] 🚀 啟動並行分段合併模式 (${totalSegments} 片段)...`);
+  const numChunks = Math.ceil(totalSegments / CHUNK_SIZE);
+  const chunkResults: string[] = new Array(numChunks);
+  
+  // 分組
+  const chunkTasks = [];
+  for (let i = 0; i < numChunks; i++) {
+    const start = i * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, totalSegments);
+    chunkTasks.push({
+      index: i,
+      videoUrls: videoUrls.slice(start, end),
+      audioUrls: audioUrls.slice(start, end),
+      narrations: narrations.slice(start, end)
+    });
+  }
+
+  // 並行執行控制
+  let completedChunks = 0;
+  const processChunk = async (task: any) => {
+    const progressStart = 20 + (task.index / numChunks) * 60;
+    const progressEnd = 20 + ((task.index + 1) / numChunks) * 60;
+    
+    console.log(`[ParallelMerge] 📦 正在處理第 ${task.index + 1}/${numChunks} 組...`);
+    
+    const result = await performActualMerge(
+      task.videoUrls, task.audioUrls, task.narrations, "none", subtitleStyle,
+      outputFormat, resolution, narrationVolume, 0, originalVolume,
+      progressStart, progressEnd, taskId
+    );
+
+    if (!result.success || !result.videoUrl) {
+      throw new Error(`第 ${task.index + 1} 組合併失敗: ${result.error}`);
+    }
+    
+    chunkResults[task.index] = result.videoUrl;
+    completedChunks++;
+    if (taskId) updateTaskProgress(taskId, Math.floor(20 + (completedChunks / numChunks) * 60));
+  };
+
+  // 使用簡單的並行池邏輯
+  try {
+    for (let i = 0; i < chunkTasks.length; i += MAX_CONCURRENT_CHUNKS) {
+      const batch = chunkTasks.slice(i, i + MAX_CONCURRENT_CHUNKS);
+      await Promise.all(batch.map(task => processChunk(task)));
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+
+  // 最後一步：最終匯總
+  console.log(`[ParallelMerge] 🎬 正在進行最終匯總合併...`);
+  if (taskId) updateTaskProgress(taskId, 85);
+  
+  return await performActualMerge(
+    chunkResults, 
+    chunkResults.map(() => ""), 
+    chunkResults.map(() => ""), 
+    bgmType, 
+    "none", 
+    outputFormat, resolution, 100, bgmVolume, 100,
+    85, 95, taskId
+  );
+}
+
+/**
+ * 實際執行 FFmpeg 合併的內部函數
+ */
+async function performActualMerge(
+  videoUrls: string[],
+  audioUrls: string[],
+  narrations: string[],
+  bgmType: BgmType,
+  subtitleStyle: SubtitleStyle,
+  outputFormat: string,
+  resolution: string,
+  narrationVolume: number,
+  bgmVolume: number,
   originalVolume: number
 ): Promise<MergeResult> {
   mergeStats.localAttempts++;
@@ -837,6 +937,18 @@ function formatAssTime(seconds: number): string {
  * 標準化單個視頻（包含旁白和字幕）
  */
 async function normalizeVideo(
+    const isImage = inputUrl.match(/\.(jpg|jpeg|png|webp)$/i);
+    if (isImage) {
+        const output = require("path").join(tempDir, `img_norm_${index}_${Date.now()}.mp4`);
+        const imageCmd = `ffmpeg -loop 1 -i "${inputUrl}" -t 3 -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p" -c:v libx264 -pix_fmt yuv420p -r 30 "${output}"`;
+        await new Promise((resolve, reject) => {
+            require("child_process").exec(imageCmd, { timeout: 30000 }, (error) => {
+                if (error) reject(error);
+                else resolve(true);
+            });
+        });
+        return output;
+    }
   inputPath: string,
   outputPath: string,
   audioPath: string,

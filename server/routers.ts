@@ -1167,6 +1167,12 @@ export const appRouter = router({
     // 創建歷史記錄
     create: publicProcedure
       .input(z.object({
+        videoPercent: z.number().default(100), // 視頻比例
+        imagePercent: z.number().default(0), // 圖片比例
+        imageDuration: z.string().default("3s"), // 圖片顯示時長
+        subtitleEnabled: z.boolean().default(true), // 是否啟用字幕
+        subtitleMode: z.enum(["auto", "manual", "none"]).default("auto"), // 字幕模式
+        subtitleFont: z.string().default("noto-sans-tc"), // 字幕字體
         sessionId: z.string().optional(),
         taskType: z.enum(["video", "image", "audio", "voice_clone"]),
         title: z.string().optional(),
