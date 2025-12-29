@@ -793,16 +793,18 @@ async function normalizeVideo(
 
     if (hasAudio) {
       // 有旁白音頻：混合原音和旁白
-      console.log(`[Normalize] 🎤 混合旁白音頻: ${audioPath}`);
+      // ✅ 修復：使用 duration=longest 確保旁白不被截斷，並使用 tpad 填充視頻最後一幀
+      console.log(`[Normalize] 🎤 混合旁白音頻 (完整模式): ${audioPath}`);
       
       cmd = [
         "ffmpeg", "-y",
         "-i", `"${inputPath}"`,
         "-i", `"${audioPath}"`,
         "-filter_complex",
-        `"[0:a]volume=${origVol}[a0];[1:a]volume=${narrVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout];[0:v]${videoFilter}[vout]"`,
-        "-map", '"[vout]"',
+        `"[0:v]${videoFilter},tpad=stop_mode=clone:stop_duration=2[v_padded];[0:a]volume=${origVol}[a0];[1:a]volume=${narrVol}[a1];[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]"`,
+        "-map", '"[v_padded]"',
         "-map", '"[aout]"',
+        "-shortest", // 確保在音頻結束時停止
         "-c:v", NORMALIZE_CONFIG.videoCodec,
         "-preset", NORMALIZE_CONFIG.preset,
         "-crf", String(NORMALIZE_CONFIG.crf),

@@ -19,46 +19,61 @@ export interface GenerateSegmentsResult {
 }
 
 // ✅ 新增：強制截斷旁白的輔助函數（導出供其他模組使用）
-export function truncateNarration(narration: string, language: string, maxLength: number = 16): string {
+export function truncateNarration(narration: string, language: string, maxLength: number = 14): string {
   if (language === 'english') {
     // 英文按單詞數截斷
     const words = narration.split(/\s+/);
     if (words.length <= maxLength) return narration;
     
-    // 截斷到 maxLength 個單詞，並確保句子完整
-    let truncated = words.slice(0, maxLength).join(' ');
-    // 如果最後不是句號，加上省略號
-    if (!truncated.endsWith('.') && !truncated.endsWith('!') && !truncated.endsWith('?')) {
+    // 嘗試在標點符號處截斷
+    let truncatedWords = words.slice(0, maxLength);
+    let lastPunctIndex = -1;
+    for (let i = truncatedWords.length - 1; i >= Math.floor(maxLength * 0.6); i--) {
+      if (/[.!?]/.test(truncatedWords[i])) {
+        lastPunctIndex = i;
+        break;
+      }
+    }
+    
+    if (lastPunctIndex !== -1) {
+      truncatedWords = truncatedWords.slice(0, lastPunctIndex + 1);
+    }
+    
+    let truncated = truncatedWords.join(' ');
+    if (!/[.!?]$/.test(truncated)) {
       truncated = truncated.replace(/[,;:]$/, '') + '.';
     }
-    console.log(`[truncateNarration] 英文旁白從 ${words.length} 個單詞截斷到 ${maxLength} 個單詞`);
     return truncated;
   } else {
     // 中文按字數截斷
-    // 移除標點符號計算實際字數
     const pureText = narration.replace(/[，。！？、；：「」『』（）\s]/g, '');
     if (pureText.length <= maxLength) return narration;
     
-    // 截斷中文，保留標點符號的比例
+    // 嘗試在標點符號處截斷
     let charCount = 0;
+    let lastPunctIndex = -1;
     let truncateIndex = 0;
+    
     for (let i = 0; i < narration.length; i++) {
       const char = narration[i];
       if (!/[，。！？、；：「」『』（）\s]/.test(char)) {
         charCount++;
       }
+      
+      if (/[，。！？、；：]/.test(char) && charCount >= Math.floor(maxLength * 0.5) && charCount <= maxLength) {
+        lastPunctIndex = i;
+      }
+      
       if (charCount >= maxLength) {
-        truncateIndex = i + 1;
+        truncateIndex = (lastPunctIndex !== -1) ? lastPunctIndex + 1 : i + 1;
         break;
       }
     }
     
     let truncated = narration.slice(0, truncateIndex);
-    // 確保結尾有標點
     if (!/[。！？]$/.test(truncated)) {
       truncated = truncated.replace(/[，、；：]$/, '') + '。';
     }
-    console.log(`[truncateNarration] 中文旁白從 ${pureText.length} 個字截斷到 ${maxLength} 個字`);
     return truncated;
   }
 }
@@ -118,12 +133,12 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
 【語氣】專業講解員或知識類主播`,
   };
 
-  // ✅ 修復：旁白字數要求（大幅縮短，語速要慢，留出充足停頓）
-  // 8秒影片，約 2 字/秒，所以最多 16 個字
-  const maxNarrationLength = 16;
+  // ✅ 修復：旁白字數要求（進一步縮短，確保 8 秒內能從容唸完）
+  // 8秒影片，建議 10-12 個字，最多 14 個字
+  const maxNarrationLength = 14;
   const narrationLength = language === 'english' 
-    ? '12-16個英文單詞（約 2 words/秒，語速要慢）' 
-    : '12-16個中文字（約 2 字/秒，語速要慢）';
+    ? '10-14個英文單詞（極簡短，語速要慢）' 
+    : '10-14個中文字（極簡短，語速要慢）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
