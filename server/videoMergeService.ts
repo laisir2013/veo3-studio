@@ -484,11 +484,42 @@ async function tryLocalFFmpegMerge(
     console.log(`[LocalFFmpeg] 🎬 合併視頻...`);
     const outputPath = `${tempDir}/merged_output.mp4`;
     
+    // ✅ 新增：檢查每個片段的時長和大小
+    console.log(`[Concat] 📝 準備合併 ${normalizedPaths.length} 個片段`);
+    let totalExpectedDuration = 0;
+    for (let i = 0; i < normalizedPaths.length; i++) {
+      const path = normalizedPaths[i];
+      if (fs.existsSync(path)) {
+        const stats = fs.statSync(path);
+        try {
+          const { stdout: durationStr } = await execAsync(
+            `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${path}"`,
+            { timeout: 10000 }
+          );
+          const duration = parseFloat(durationStr.trim());
+          totalExpectedDuration += duration;
+          console.log(`[Concat] 片段 ${i + 1}: ${path.split('/').pop()} - ${(stats.size / 1024 / 1024).toFixed(2)} MB, ${duration.toFixed(2)}秒`);
+        } catch (e) {
+          console.log(`[Concat] 片段 ${i + 1}: ${path.split('/').pop()} - ${(stats.size / 1024 / 1024).toFixed(2)} MB, 時長未知`);
+        }
+      } else {
+        console.log(`[Concat] ❌ 片段 ${i + 1} 不存在: ${path}`);
+      }
+    }
+    console.log(`[Concat] 📊 預期總時長: ${totalExpectedDuration.toFixed(2)}秒`);
+    
     // 創建 concat 列表
     const listPath = `${tempDir}/concat_list.txt`;
-    const listContent = normalizedPaths.map(p => `file '${p}'`).join("\n");
+    const validPaths = normalizedPaths.filter(p => fs.existsSync(p));
+    if (validPaths.length < normalizedPaths.length) {
+      console.warn(`[Concat] ⚠️ 有 ${normalizedPaths.length - validPaths.length} 個片段不存在，將被跳過`);
+    }
+    if (validPaths.length === 0) {
+      return { success: false, error: "沒有有效的視頻片段可合併" };
+    }
+    const listContent = validPaths.map(p => `file '${p}'`).join("\n");
     fs.writeFileSync(listPath, listContent);
-    console.log(`[LocalFFmpeg] 📝 Concat 列表:\n${listContent}`);
+    console.log(`[LocalFFmpeg] 📝 Concat 列表 (${validPaths.length} 個有效片段):\n${listContent}`);
 
     // ✅ 修復：根據是否有背景音樂選擇不同的合併命令
     let mergeCmd: string;
@@ -875,10 +906,11 @@ async function downloadVideoWithValidation(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // 方案 1：curl
     try {
-      // ✅ 優化：降低 maxBuffer
-      await execAsync(`curl -L -f -o "${localPath}" "${url}"`, { 
-        timeout: 120000,
-        maxBuffer: 10 * 1024 * 1024 // ✅ 降低到 10MB
+      // ✅ 優化：添加 User-Agent 和更長的超時
+      const curlCmd = `curl -L -f --max-time 60 --retry 3 --retry-delay 2 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -o "${localPath}" "${url}"`;
+      await execAsync(curlCmd, { 
+        timeout: 70000, // 70 秒
+        maxBuffer: 20 * 1024 * 1024 // ✅ 增加到 20MB
       });
       
       if (fs.existsSync(localPath)) {
@@ -952,7 +984,7 @@ async function downloadVideoWithValidation(
 
 /**
  * 用 ffprobe 驗證媒體文件有效性（支持視頻和音頻）
- * ✅ 修復：音頻文件使用 -select_streams a:0 而不是 v:0
+ * ✅ 改進：先檢測音頻流，失敗則檢測視頻流（避免擴展名依賴）
  */
 async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
   try {
@@ -960,33 +992,34 @@ async function validateVideoWithFFprobe(filePath: string): Promise<boolean> {
     const { promisify } = await import("util");
     const execAsync = promisify(exec);
 
-    // ✅ 判斷是否為音頻文件
-    const isAudio = filePath.endsWith('.mp3') || filePath.endsWith('.wav') || filePath.endsWith('.aac') || filePath.endsWith('.m4a');
-    
-    if (isAudio) {
-      // ✅ 音頻文件：檢查音頻流
-      const { stdout } = await execAsync(
+    // ✅ 改進：先嘗試檢測音頻流，失敗則檢測視頻流
+    try {
+      const { stdout: audioCheck } = await execAsync(
         `ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
         { timeout: 10000 }
       );
-      const codec = stdout.trim();
-      if (codec && codec.length > 0) {
-        console.log(`[FFprobe] ✅ 音頻編碼: ${codec}`);
+      
+      if (audioCheck.trim()) {
+        console.log(`[FFprobe] ✅ 音頻編碼: ${audioCheck.trim()}`);
         return true;
       }
-    } else {
-      // 視頻文件：檢查視頻流
-      const { stdout } = await execAsync(
-        `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
-        { timeout: 10000 }
-      );
-      const codec = stdout.trim();
-      if (codec && codec.length > 0) {
-        console.log(`[FFprobe] ✅ 視頻編碼: ${codec}`);
-        return true;
-      }
+    } catch (audioError) {
+      // 沒有音頻流，繼續嘗試視頻流
+      console.log(`[FFprobe] ℹ️ 無音頻流，嘗試檢測視頻流...`);
     }
 
+    // 檢查視頻流
+    const { stdout: videoCheck } = await execAsync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+      { timeout: 10000 }
+    );
+    
+    if (videoCheck.trim()) {
+      console.log(`[FFprobe] ✅ 視頻編碼: ${videoCheck.trim()}`);
+      return true;
+    }
+
+    console.log(`[FFprobe] ⚠️ 文件無有效的音頻或視頻流`);
     return false;
   } catch (error: any) {
     console.log(`[FFprobe] ❌ 驗證失敗:`, error.message);
