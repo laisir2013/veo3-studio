@@ -1028,3 +1028,195 @@ export async function generateNanoBananaImage(
   console.log(`[Nano-Banana] 圖片生成成功: ${imageUrl}`);
   return imageUrl;
 }
+
+
+/**
+ * 🎨 將單一視頻場景描述拆分為 3 個有視覺遞進關係的圖片描述
+ * 用於混合模式下，將 1 個 8 秒影片場景轉換為 3 張圖片（每張約 2.67 秒）
+ * 
+ * @param originalDescription 原始視頻場景描述（英文）
+ * @param narrationText 對應的旁白文字
+ * @param llmModel LLM 模型名稱
+ * @returns 3 個圖片描述的陣列
+ */
+export async function splitImagePromptForSegment(
+  originalDescription: string,
+  narrationText: string,
+  llmModel: string = "gpt-4o-mini"
+): Promise<string[]> {
+  const apiKey = getNextApiKey();
+  
+  const systemPrompt = `你是一個專業的視覺故事分鏡師。你的任務是將一個 8 秒的視頻場景描述拆分為 3 張靜態圖片的描述。
+
+【核心要求】
+1. 這 3 張圖片必須呈現**視覺上的遞進或變化**，像電影分鏡一樣
+2. 每張圖片的描述必須與旁白內容相關，但要有不同的視覺焦點
+3. 所有描述必須使用**英文**，適合 AI 圖片生成
+
+【遞進模式參考】
+- 時間遞進：開始 → 過程 → 結果
+- 空間遞進：遠景 → 中景 → 特寫
+- 情緒遞進：平靜 → 緊張 → 高潮
+- 動作遞進：準備 → 執行 → 完成
+
+【輸出格式】
+請以 JSON 格式返回，格式如下：
+{
+  "image1": "First image description in English (beginning/establishing shot)",
+  "image2": "Second image description in English (development/action)",
+  "image3": "Third image description in English (climax/conclusion)"
+}
+
+【描述要求】
+- 每個描述 30-50 個英文單詞
+- 包含：主體、動作/狀態、環境、光線、構圖
+- 保持視覺風格一致性`;
+
+  const userPrompt = `請將以下視頻場景拆分為 3 張圖片描述：
+
+【原始場景描述】
+${originalDescription}
+
+【對應旁白】
+${narrationText}
+
+請生成 3 個有視覺遞進關係的圖片描述。`;
+
+  try {
+    console.log(`[ImageSplit] 開始拆分場景描述為 3 張圖片...`);
+    console.log(`[ImageSplit] 原始描述: ${originalDescription.substring(0, 100)}...`);
+    
+    const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: llmModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`LLM API 調用失敗: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content;
+    
+    if (!content) {
+      throw new Error("LLM 返回內容為空");
+    }
+
+    // 處理 LLM 可能返回的 markdown 格式
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```json')) {
+      jsonContent = jsonContent.slice(7);
+    } else if (jsonContent.startsWith('```')) {
+      jsonContent = jsonContent.slice(3);
+    }
+    if (jsonContent.endsWith('```')) {
+      jsonContent = jsonContent.slice(0, -3);
+    }
+    jsonContent = jsonContent.trim();
+    
+    const result = JSON.parse(jsonContent);
+    
+    const imagePrompts = [
+      result.image1 || result.image_1 || result.images?.[0] || originalDescription,
+      result.image2 || result.image_2 || result.images?.[1] || originalDescription,
+      result.image3 || result.image_3 || result.images?.[2] || originalDescription,
+    ];
+    
+    console.log(`[ImageSplit] 成功拆分為 3 張圖片描述:`);
+    imagePrompts.forEach((prompt, i) => {
+      console.log(`  圖片 ${i + 1}: ${prompt.substring(0, 60)}...`);
+    });
+    
+    return imagePrompts;
+  } catch (error) {
+    console.error(`[ImageSplit] 拆分失敗，使用原始描述:`, error);
+    // 失敗時返回 3 個相同的原始描述
+    return [originalDescription, originalDescription, originalDescription];
+  }
+}
+
+/**
+ * 🖼️ 為圖片片段生成 3 張不同的圖片並合併為視頻
+ * 
+ * @param originalDescription 原始視頻場景描述
+ * @param narrationText 對應的旁白文字
+ * @param llmModel LLM 模型名稱
+ * @param imageDurationSec 每張圖片的顯示時長（秒）
+ * @returns 合併後的視頻 URL
+ */
+export async function generateMultiImageSegment(
+  originalDescription: string,
+  narrationText: string,
+  llmModel: string = "gpt-4o-mini",
+  imageDurationSec: number = 2.67
+): Promise<{ videoUrl: string; imageUrls: string[] }> {
+  console.log(`[MultiImage] 開始生成多圖片片段...`);
+  
+  // 1. 拆分描述為 3 個圖片提示詞
+  const imagePrompts = await splitImagePromptForSegment(
+    originalDescription,
+    narrationText,
+    llmModel
+  );
+  
+  // 2. 並行生成 3 張圖片
+  console.log(`[MultiImage] 開始並行生成 3 張圖片...`);
+  const imageUrls: string[] = [];
+  
+  const imagePromises = imagePrompts.map(async (prompt, index) => {
+    try {
+      console.log(`[MultiImage] 生成圖片 ${index + 1}/3...`);
+      // 使用 Nano-Banana 或其他圖片生成服務
+      const imageUrl = await generateNanoBananaImage(prompt);
+      return { index, url: imageUrl };
+    } catch (error) {
+      console.error(`[MultiImage] 圖片 ${index + 1} 生成失敗:`, error);
+      // 失敗時嘗試使用 DALL-E 3 作為備用
+      try {
+        const backupUrl = await generateImageWithDallE3(prompt);
+        return { index, url: backupUrl };
+      } catch (backupError) {
+        console.error(`[MultiImage] 圖片 ${index + 1} 備用生成也失敗:`, backupError);
+        return { index, url: null };
+      }
+    }
+  });
+  
+  const results = await Promise.all(imagePromises);
+  
+  // 按順序整理結果
+  results.sort((a, b) => a.index - b.index);
+  for (const result of results) {
+    if (result.url) {
+      imageUrls.push(result.url);
+    }
+  }
+  
+  console.log(`[MultiImage] 成功生成 ${imageUrls.length}/3 張圖片`);
+  
+  // 3. 將圖片合併為視頻
+  if (imageUrls.length === 0) {
+    throw new Error("所有圖片生成都失敗了");
+  }
+  
+  // 導入視頻合併服務
+  const { generateMultiImageVideo } = await import("./videoMergeService");
+  
+  const videoUrl = await generateMultiImageVideo(imageUrls, imageDurationSec);
+  
+  console.log(`[MultiImage] 多圖片片段生成完成: ${videoUrl}`);
+  
+  return { videoUrl, imageUrls };
+}

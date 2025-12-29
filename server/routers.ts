@@ -1814,29 +1814,58 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                 task.videoModel as any
               );
             } else {
-              // 2b. 📷 GPT 建議：圖片模式需要先轉換為視頻
-              const imageDurationSec = Number(task.imageDuration ?? 3);
-              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，正在轉換為 ${imageDurationSec} 秒視頻...`);
+              // 2b. 📷 圖片模式：將 1 個場景拆分為 3 張圖片
+              console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，正在生成 3 張遞進圖片...`);
               
-              // 嘗試將圖片轉換為視頻
-              const { generateStillVideoFromImage, isImageUrl } = await import("./videoMergeService");
+              // 獲取旁白文字用於圖片描述拆分
+              let narrationForSplit = `Scene ${segment.id}`;
+              if (sceneData?.narrationSegments && Array.isArray(sceneData.narrationSegments)) {
+                narrationForSplit = sceneData.narrationSegments.map((seg: any) => seg.text).join(' ');
+              } else if (sceneData?.narration) {
+                narrationForSplit = sceneData.narration;
+              }
               
-              if (isImageUrl(imageUrl)) {
-                // 嘗試轉換
-                const convertedVideoUrl = await generateStillVideoFromImage(imageUrl, imageDurationSec);
+              try {
+                // 使用新的多圖片生成功能
+                const { generateMultiImageSegment } = await import("./videoService");
+                const { isImageUrl } = await import("./videoMergeService");
                 
-                // 檢查轉換結果是否為視頻
-                if (convertedVideoUrl && !isImageUrl(convertedVideoUrl)) {
-                  videoUrl = convertedVideoUrl;
-                  console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 圖片轉視頻成功: ${videoUrl.substring(0, 60)}...`);
-                } else {
-                  // 轉換失敗，使用原始圖片（合併時會跳過）
-                  videoUrl = imageUrl;
-                  console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 圖片轉視頻失敗，使用原始圖片`);
+                const imageDurationPerImage = 8 / 3; // 每張圖片約 2.67 秒
+                const result = await generateMultiImageSegment(
+                  sceneData?.description || `Scene ${segment.id}`,
+                  narrationForSplit,
+                  task.llmModel || 'gpt-4o-mini',
+                  imageDurationPerImage
+                );
+                
+                videoUrl = result.videoUrl;
+                console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 多圖片生成成功，共 ${result.imageUrls.length} 張圖片`);
+                
+                // 如果結果仍是圖片，嘗試轉換
+                if (isImageUrl(videoUrl)) {
+                  const { generateStillVideoFromImage } = await import("./videoMergeService");
+                  const convertedUrl = await generateStillVideoFromImage(videoUrl, 8);
+                  if (!isImageUrl(convertedUrl)) {
+                    videoUrl = convertedUrl;
+                  }
                 }
-              } else {
-                // 已經是視頻格式
-                videoUrl = imageUrl;
+              } catch (multiImageError) {
+                console.error(`[LongVideo ${taskId}] 多圖片生成失敗，回退到單圖片模式:`, multiImageError);
+                
+                // 回退到原始的單圖片模式
+                const { generateStillVideoFromImage, isImageUrl } = await import("./videoMergeService");
+                const imageDurationSec = Number(task.imageDuration ?? 3);
+                
+                if (isImageUrl(imageUrl)) {
+                  const convertedVideoUrl = await generateStillVideoFromImage(imageUrl, imageDurationSec);
+                  if (convertedVideoUrl && !isImageUrl(convertedVideoUrl)) {
+                    videoUrl = convertedVideoUrl;
+                  } else {
+                    videoUrl = imageUrl;
+                  }
+                } else {
+                  videoUrl = imageUrl;
+                }
               }
             }
             
