@@ -133,12 +133,12 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
 【語氣】專業講解員或知識類主播`,
   };
 
-  // ✅ 修復：旁白字數要求（進一步縮短，確保 8 秒內能從容唸完）
-  // 8秒影片，建議 10-12 個字，最多 14 個字
-  const maxNarrationLength = 14;
+  // ✅ 修復：旁白字數要求（增加到 26-32 個字，快節奏風格）
+  // 8秒影片，建議 26-30 個字，最多 32 個字
+  const maxNarrationLength = 32;
   const narrationLength = language === 'english' 
-    ? '10-14個英文單詞（極簡短，語速要慢）' 
-    : '10-14個中文字（極簡短，語速要慢）';
+    ? '26-32個英文單詞（快節奏解說風格）' 
+    : '26-32個中文字（快節奏解說風格）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
@@ -149,11 +149,10 @@ ${languagePrompt[language]}
 ⚠️⚠️⚠️ 重要規則 ⚠️⚠️⚠️
 
 【旁白字數要求 - 極其重要】
-- 每個片段的旁白只能有 ${narrationLength}
+- 每個片段的旁白需要 ${narrationLength}
 - ⚠️ 絕對不能超過 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
-- 語速要慢，留出充足的停頓時間
-- 不要說太多，簡潔有力最重要
-- 每個字都要有價值，不要廢話
+- 語速要快，充滿活力，像快節奏的短視頻解說
+- 內容要豐富，信息量大，每個字都要有價值
 
 【旁白風格要求】
 ${language === 'cantonese' ? 
@@ -180,7 +179,7 @@ Wrong Example (30 words): "Today, we're diving into a fascinating question about
 - 旁白要自然流暢，適合朗讀
 
 ⚠️ 最後檢查清單：
-✅ 每個片段的旁白是否只有 ${narrationLength}？絕對不能超過 ${maxNarrationLength}！
+✅ 每個片段的旁白是否達到 ${narrationLength}？絕對不能超過 ${maxNarrationLength}！
 ✅ 粵語是否使用了「係」「唔」「嘅」「咦」「啲」等詞彙？
 ✅ 普通話是否使用了標準書面語？
 ✅ 英文是否自然流暢？
