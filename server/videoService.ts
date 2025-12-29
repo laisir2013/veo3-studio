@@ -775,39 +775,73 @@ export async function generateSpeech(
   voiceActorId: string = "cantonese-male-narrator",
   language: VoiceLanguage = "cantonese"
 ): Promise<string> {
+  console.log(`[TTS] ========== 開始語音生成 ==========`);
+  console.log(`[TTS] 參數:`, {
+    textLength: text.length,
+    textPreview: text.substring(0, 50) + '...',
+    voiceActorId,
+    language,
+  });
+  
+  // 檢查 API 配置
+  const kreadoApiKey = process.env.KREADO_API_KEY;
+  if (!kreadoApiKey) {
+    console.error(`[TTS] ❌ KREADO_API_KEY 未設置！`);
+    throw new Error("KREADO_API_KEY 未配置");
+  }
+  console.log(`[TTS] ✅ API Key 已配置: ${kreadoApiKey.substring(0, 10)}...`);
+  
   let lastError: Error | null = null;
   let delay = TTS_RETRY_CONFIG.retryDelay;
-  
-  console.log(`[TTS] 開始生成語音: voiceActorId=${voiceActorId}, language=${language}`);
-  console.log(`[TTS] 文字內容: ${text.substring(0, 100)}...`);
   
   // 使用 KreadoAI TTS，帶重試機制
   for (let attempt = 0; attempt < TTS_RETRY_CONFIG.maxRetries; attempt++) {
     try {
-      console.log(`[TTS] KreadoAI 嘗試 ${attempt + 1}/${TTS_RETRY_CONFIG.maxRetries}`);
+      console.log(`[TTS] 🔄 KreadoAI 嘗試 ${attempt + 1}/${TTS_RETRY_CONFIG.maxRetries}`);
+      console.log(`[TTS] 調用 generateSpeechWithKreado...`);
+      
       const result = await generateSpeechWithKreado(text, voiceActorId, language);
-      console.log(`[TTS] KreadoAI 語音生成成功: ${result.audioUrl}`);
+      
+      console.log(`[TTS] ✅ KreadoAI 返回結果:`, {
+        hasAudioUrl: Boolean(result.audioUrl),
+        audioUrl: result.audioUrl?.substring(0, 80),
+        duration: result.duration,
+      });
+      
+      // 驗證返回的 URL
+      if (!result.audioUrl || !result.audioUrl.startsWith("http")) {
+        throw new Error(`無效的音頻 URL: ${result.audioUrl}`);
+      }
+      
+      console.log(`[TTS] ✅ KreadoAI 語音生成成功: ${result.audioUrl}`);
       return result.audioUrl;
+      
     } catch (error) {
       lastError = error as Error;
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.warn(`[TTS] KreadoAI 嘗試 ${attempt + 1} 失敗: ${errorMsg}`);
+      console.error(`[TTS] ❌ KreadoAI 嘗試 ${attempt + 1} 失敗:`, {
+        message: errorMsg,
+        name: (error as Error).name,
+        stack: (error as Error).stack?.substring(0, 200),
+      });
       
       // 如果是 voiceId 錯誤，嘗試使用默認配音員重試
       if (errorMsg.includes('voiceId') && voiceActorId !== 'cantonese-male-narrator') {
-        console.log(`[TTS] voiceId 錯誤，嘗試使用默認配音員`);
+        console.log(`[TTS] 🔄 voiceId 錯誤，嘗試使用默認配音員: cantonese-male-narrator`);
         try {
           const result = await generateSpeechWithKreado(text, 'cantonese-male-narrator', language);
-          console.log(`[TTS] 使用默認配音員成功: ${result.audioUrl}`);
+          console.log(`[TTS] ✅ 使用默認配音員成功: ${result.audioUrl}`);
           return result.audioUrl;
         } catch (fallbackError) {
-          console.warn(`[TTS] 默認配音員也失敗:`, fallbackError);
+          console.error(`[TTS] ❌ 默認配音員也失敗:`, {
+            message: (fallbackError as Error).message,
+          });
         }
       }
       
       // 如果不是最後一次嘗試，等待後重試
       if (attempt < TTS_RETRY_CONFIG.maxRetries - 1) {
-        console.log(`[TTS] 等待 ${delay}ms 後重試...`);
+        console.log(`[TTS] ⏳ 等待 ${delay}ms 後重試...`);
         await sleep(delay);
         delay *= TTS_RETRY_CONFIG.backoffMultiplier;
       }
@@ -815,8 +849,9 @@ export async function generateSpeech(
   }
   
   // 所有重試都失敗
+  console.error(`[TTS] ========== 語音生成失敗 ==========`);
+  console.error(`[TTS] 最後錯誤:`, lastError?.message);
   const errorMsg = lastError?.message || 'Unknown error';
-  console.error(`[TTS] KreadoAI TTS 失敗，已達最大重試次數: ${errorMsg}`);
   throw new Error(`TTS 生成失敗 (已重試 ${TTS_RETRY_CONFIG.maxRetries} 次): ${errorMsg}`);
 }
 

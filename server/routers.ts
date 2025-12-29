@@ -2083,43 +2083,84 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             const voiceActorId = task.voiceActorId || 'default';
             let audioUrl = "";
             
+            // 🔍 步驟 1：記錄 TTS 調用參數
+            console.log(`[LongVideo ${taskId}] 🎤 開始生成片段 ${segment.id} 的音頻`, {
+              narrationLength: narrationText.length,
+              narrationPreview: narrationText.substring(0, 30) + '...',
+              voiceActorId,
+              language: task.language || 'cantonese',
+            });
+            
             try {
+              // 🔍 步驟 2：調用 TTS 服務
+              console.log(`[LongVideo ${taskId}] 調用 generateSpeech...`);
               audioUrl = await generateSpeech(
                 narrationText,
                 voiceActorId,
                 (task.language || 'cantonese') as any
               );
               
+              // 🔍 步驟 3：驗證返回的 URL
+              console.log(`[LongVideo ${taskId}] generateSpeech 返回:`, {
+                audioUrl: audioUrl?.substring(0, 80),
+                isValid: Boolean(audioUrl && audioUrl.startsWith("http")),
+              });
+              
               // ✅ 驗證音頻 URL
               if (!audioUrl || !audioUrl.startsWith("http")) {
-                console.warn(`[LongVideo ${taskId}] ⚠️ 片段 ${segment.id} 音頻 URL 無效: ${audioUrl}`);
+                console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻 URL 無效: "${audioUrl}"`);
                 audioUrl = "";
               } else {
-                console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 音頻生成成功: ${audioUrl}`);
+                console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 音頻生成成功: ${audioUrl.substring(0, 60)}...`);
               }
             } catch (audioError: any) {
-              console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻生成失敗:`, audioError.message);
+              // 🔍 步驟 4：詳細記錄錯誤
+              console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻生成失敗:`, {
+                message: audioError.message,
+                stack: audioError.stack?.substring(0, 300),
+                code: audioError.code,
+                statusCode: audioError.statusCode,
+              });
               // 不拋出錯誤，繼續處理（允許沒有旁白的視頻）
               audioUrl = "";
             }
             
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 生成完成 (類型: ${mediaType})`);
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 視頻/圖片: ${videoUrl}`);
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻: ${audioUrl || "(無)"}`);
-            
-            // ✅ 新增：記錄音頻生成統計
-            const audioGenerated = audioUrl ? 1 : 0;
-            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 音頻狀態: ${audioGenerated ? "✅ 已生成" : "⚠️ 未生成"}`);
+            // 🔍 步驟 5：保存前驗證
+            console.log(`[LongVideo ${taskId}] 準備保存片段 ${segment.id}:`, {
+              hasVideoUrl: Boolean(videoUrl),
+              hasAudioUrl: Boolean(audioUrl),
+              videoUrl: videoUrl?.substring(0, 50),
+              audioUrl: audioUrl?.substring(0, 50) || '(空)',
+            });
             
             // 更新片段狀態（使用實際生成的 URL）
             updateSegment(taskId, segment.id, {
               status: "completed",
               progress: 100,
-              videoUrl: videoUrl, // 使用實際生成的視頻/圖片 URL
-              audioUrl: audioUrl, // 使用實際生成的音頻 URL
-              narration: narrationText, // 使用正確的旁白文字
+              videoUrl: videoUrl,
+              audioUrl: audioUrl,
+              narration: narrationText,
               prompt: sceneData?.description,
             });
+            
+            // 🔍 步驟 6：保存後驗證
+            const updatedTask = getLongVideoTask(taskId);
+            const updatedSegment = updatedTask?.segments.find(s => s.id === segment.id);
+            console.log(`[LongVideo ${taskId}] 🔍 保存後驗證片段 ${segment.id}:`, {
+              status: updatedSegment?.status,
+              hasVideoUrl: Boolean(updatedSegment?.videoUrl),
+              hasAudioUrl: Boolean(updatedSegment?.audioUrl),
+              audioUrl: updatedSegment?.audioUrl?.substring(0, 50) || '(空)',
+            });
+            
+            // 🚨 如果音頻保存失敗，發出警告
+            if (audioUrl && !updatedSegment?.audioUrl) {
+              console.error(`[LongVideo ${taskId}] 🚨 嚴重錯誤：audioUrl 保存失敗！`);
+              console.error(`  生成的 audioUrl: ${audioUrl}`);
+              console.error(`  保存後的 audioUrl: ${updatedSegment?.audioUrl || '(空)'}`);
+            }
+            
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 生成完成 (類型: ${mediaType})`);
           } catch (error) {
             console.error(`[LongVideo ${taskId}] 片段 ${segment.id} 生成失敗:`, error);
             throw error;
