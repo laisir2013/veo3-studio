@@ -19,7 +19,7 @@ export interface GenerateSegmentsResult {
 }
 
 // ✅ 新增：強制截斷旁白的輔助函數（導出供其他模組使用）
-export function truncateNarration(narration: string, language: string, maxLength: number = 14): string {
+export function truncateNarration(narration: string, language: string, maxLength: number = 26): string {
   if (language === 'english') {
     // 英文按單詞數截斷
     const words = narration.split(/\s+/);
@@ -133,12 +133,12 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
 【語氣】專業講解員或知識類主播`,
   };
 
-  // ✅ 修復：旁白字數要求（增加到 26-32 個字，快節奏風格）
-  // 8秒影片，建議 26-30 個字，最多 32 個字
-  const maxNarrationLength = 32;
+  // ✅ 修復：旁白字數要求（微調到 20-26 個字，黃金語速風格）
+  // 8秒影片，建議 20-24 個字，最多 26 個字
+  const maxNarrationLength = 26;
   const narrationLength = language === 'english' 
-    ? '26-32個英文單詞（快節奏解說風格）' 
-    : '26-32個中文字（快節奏解說風格）';
+    ? '20-26個英文單詞（自然快節奏風格）' 
+    : '20-26個中文字（自然快節奏風格）';
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
@@ -151,8 +151,8 @@ ${languagePrompt[language]}
 【旁白字數要求 - 極其重要】
 - 每個片段的旁白需要 ${narrationLength}
 - ⚠️ 絕對不能超過 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
-- 語速要快，充滿活力，像快節奏的短視頻解說
-- 內容要豐富，信息量大，每個字都要有價值
+- 語速自然偏快，充滿活力，像 TikTok/Reels 的短視頻解說
+- 內容精煉，信息量適中，確保聽眾能聽清
 
 【旁白風格要求】
 ${language === 'cantonese' ? 
@@ -192,7 +192,7 @@ ${outline}
 
 請為這個視頻生成 ${segmentCount} 個片段的內容。每個片段8秒。
 
-⚠️ 記住：每個片段的旁白只能有 ${narrationLength}，絕對不能超過 ${maxNarrationLength} 個字/單詞！語速要慢！
+⚠️ 記住：每個片段的旁白需要 ${narrationLength}，絕對不能超過 ${maxNarrationLength} 個字/單詞！語速自然偏快！
 
 請以 JSON 格式返回，格式如下：
 {
