@@ -489,6 +489,12 @@ function SegmentDetailRow({
                 <span className="ml-1 font-medium">({segment.progress || 0}%)</span>
               )}
             </div>
+            {/* ✅ 在標題區域顯示生成狀態詳情 */}
+            {segment.status === "generating" && segment.generatingStatus && (
+              <div className="text-xs text-yellow-400 truncate max-w-[300px]" title={segment.generatingStatus}>
+                {segment.generatingStatus}
+              </div>
+            )}
           </div>
         </div>
 
@@ -626,9 +632,15 @@ function SegmentDetailRow({
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
                   {segment.status === "generating" ? (
-                    <div className="text-center">
+                    <div className="text-center px-2">
                       <Loader2 className="w-10 h-10 animate-spin text-blue-400 mx-auto mb-2" />
                       <span className="text-sm text-zinc-400">生成中 {segment.progress || 0}%</span>
+                      {/* ✅ 顯示生成狀態詳情 */}
+                      {segment.generatingStatus && (
+                        <div className="text-xs text-yellow-400 mt-1 max-w-[200px] truncate" title={segment.generatingStatus}>
+                          {segment.generatingStatus}
+                        </div>
+                      )}
                       <div className="w-24 h-1.5 bg-zinc-700 rounded-full mt-2 mx-auto">
                         <div 
                           className="h-full bg-blue-500 rounded-full transition-all"

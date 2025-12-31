@@ -425,8 +425,8 @@ Scene description: Summarize the content, leave a lasting impression, and encour
     { 
       enabled: !!longVideoTaskId,
       refetchInterval: (data) => {
-        // 如果任務還在進行中，每 2 秒刷新一次
-        if (data?.status === 'completed' || data?.status === 'failed') {
+        // 如果任務不存在、已完成或失敗，停止輪詢
+        if (data?.status === 'not_found' || data?.status === 'completed' || data?.status === 'failed') {
           return false;
         }
         return 2000;
@@ -510,6 +510,19 @@ Scene description: Summarize the content, leave a lasting impression, and encour
 
   // 長視頻任務完成通知
   useEffect(() => {
+    // 如果任務不存在（服務重啟導致數據丟失），清除 localStorage 並重置狀態
+    if (longVideoStatus?.status === "not_found") {
+      localStorage.removeItem('longVideoTaskId');
+      localStorage.removeItem('isLongVideoMode');
+      setLongVideoTaskId(null);
+      setIsLongVideoMode(false);
+      toast.info("任務已過期", {
+        description: "服務器重啟後任務數據已清除，請重新生成",
+        duration: 5000,
+      });
+      return;
+    }
+    
     if (longVideoStatus?.status === "completed" || longVideoStatus?.status === "failed") {
       // 任務完成或失敗時清除 localStorage
       localStorage.removeItem('longVideoTaskId');
