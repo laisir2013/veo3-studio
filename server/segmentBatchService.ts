@@ -192,15 +192,32 @@ export function createLongVideoTask(
   
   // 創建所有片段
   const segments: Segment[] = [];
+  const videoPercent = options.videoPercent ?? 100;
+  const imagePercent = options.imagePercent ?? 0;
+  
+  // 預先分配媒體類型的函數
+  const getMediaTypeForSegment = (segmentId: number): "image" | "video" => {
+    if (videoPercent >= 100) return "video"; // 100% 視頻
+    if (videoPercent <= 0) return "image"; // 0% 視頻 (全圖片)
+    
+    // 交替分配算法：使用比例計算每個位置應該是視頻還是圖片
+    const videoRatio = videoPercent / 100;
+    const expectedVideoCount = Math.round(segmentId * videoRatio);
+    const previousExpectedVideoCount = Math.round((segmentId - 1) * videoRatio);
+    return expectedVideoCount > previousExpectedVideoCount ? "video" : "image";
+  };
+  
   for (let i = 0; i < totalSegments; i++) {
     const batchIndex = Math.floor(i / BATCH_SIZE);
+    const segmentId = i + 1;
     segments.push({
-      id: i + 1,
+      id: segmentId,
       batchIndex,
       status: "pending",
       progress: 0,
       startTime: i * SEGMENT_DURATION,
       endTime: Math.min((i + 1) * SEGMENT_DURATION, durationMinutes * 60),
+      mediaType: getMediaTypeForSegment(segmentId), // ✅ 預先分配媒體類型
     });
   }
   
