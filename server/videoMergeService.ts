@@ -3,8 +3,8 @@ import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import { z } from "zod";
-import { storagePut, getPublicUrl } from "./storage";
-import { updateTaskProgress } from "./taskPersistence";
+import { storagePut } from "./storage";
+import { saveTask, loadTask } from "./taskPersistence";
 
 const execAsync = promisify(exec);
 
@@ -84,6 +84,32 @@ export const mergeStats = {
 /**
  * 🎬 視頻合併主入口
  */
+/**
+ * 模擬更新任務進度（因為原函數不存在）
+ */
+async function mockUpdateTaskProgress(taskId: string, progress: number) {
+  try {
+    const task = await loadTask(taskId);
+    if (task) {
+      task.progress = progress;
+      task.updatedAt = new Date();
+      await saveTask(task);
+      console.log(`[Persistence] 任務 ${taskId} 進度更新為 ${progress}%`);
+    }
+  } catch (error) {
+    console.error(`[Persistence] 更新任務進度失敗:`, error);
+  }
+}
+
+/**
+ * 獲取公共 URL（因為原函數不存在，且 storagePut 現在返回 { key, url }）
+ */
+function getPublicUrl(key: string): string {
+  // 這裡假設 R2 的公共 URL 格式，或者從環境變量獲取
+  const baseUrl = process.env.R2_PUBLIC_URL || "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev";
+  return `${baseUrl.replace(/\/+$/, "")}/${key.replace(/^\/+/, "")}`;
+}
+
 export async function mergeVideos(params: {
   videoUrls: string[];
   audioUrls: string[];
@@ -203,7 +229,7 @@ export async function mergeVideos(params: {
   } else {
     // 第一層：雲端合併（僅當沒有圖片時）
     try {
-      if (taskId) updateTaskProgress(taskId, 10);
+      if (taskId) mockUpdateTaskProgress(taskId, 10);
       const cloudResult = await tryCloudMerge(allMediaUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
       if (cloudResult.success) {
         console.log(`[VideoMerge] ✅ 雲端合併成功`);
@@ -219,7 +245,7 @@ export async function mergeVideos(params: {
 
   // 第二層：本地 FFmpeg 合併（支持混合模式）
   try {
-    if (taskId) updateTaskProgress(taskId, 20);
+    if (taskId) mockUpdateTaskProgress(taskId, 20);
     const localResult = await tryLocalFFmpegMerge(allMediaUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
@@ -396,7 +422,7 @@ export async function tryLocalFFmpegMerge(
     
     chunkResults[task.index] = result.videoUrl;
     completedChunks++;
-    if (taskId) updateTaskProgress(taskId, Math.floor(20 + (completedChunks / numChunks) * 60));
+    if (taskId) mockUpdateTaskProgress(taskId, Math.floor(20 + (completedChunks / numChunks) * 60));
   };
 
   // 使用簡單的並行池邏輯
@@ -609,7 +635,7 @@ async function performActualMerge(
 
     // 步驟 3：合併標準化後的視頻
     console.log(`[LocalFFmpeg] 🎬 合併視頻...`);
-    if (taskId) updateTaskProgress(taskId, 85);
+    if (taskId) mockUpdateTaskProgress(taskId, 85);
     const outputPath = `${tempDir}/merged_output.mp4`;
     
     // ✅ 新增：檢查每個片段的時長和大小
@@ -719,13 +745,15 @@ async function performActualMerge(
 
     // 步驟 4：上傳到 R2
     console.log(`[LocalFFmpeg] 🚀 上傳最終視頻到 R2...`);
-    if (taskId) updateTaskProgress(taskId, 95);
+    if (taskId) mockUpdateTaskProgress(taskId, 95);
     const videoUrl = await uploadMergedVideo(outputPath);
     
     // 清理臨時目錄
     try {
       console.log(`[LocalFFmpeg] 🗑️ 清理臨時目錄`);
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     } catch (e) {
       console.warn(`[LocalFFmpeg] ⚠️ 清理臨時目錄失敗:`, e);
     }
