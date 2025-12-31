@@ -1099,9 +1099,55 @@ export async function generateNanoBananaImage(
   if (data.choices && data.choices[0]) {
     const choice = data.choices[0];
     
-    // 檢查 message.content 是否包含 URL
+    // 檢查 message.content 是否包含 URL 或 base64 圖片
     if (choice.message?.content) {
       const content = choice.message.content;
+      
+      // 檢查是否是 Markdown 格式的 base64 圖片: ![image](data:image/...;base64,...)
+      const base64MarkdownMatch = content.match(/!\[.*?\]\(data:image\/(\w+);base64,([A-Za-z0-9+/=]+)\)/);
+      if (base64MarkdownMatch) {
+        console.log(`[Nano-Banana-2] 檢測到 base64 圖片格式，正在上傳到存儲...`);
+        const imageFormat = base64MarkdownMatch[1]; // jpeg, png, etc.
+        const base64Data = base64MarkdownMatch[2];
+        
+        // 將 base64 轉換為 Buffer 並上傳到存儲
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const { storagePut } = await import("./storage");
+        const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
+        const contentType = `image/${imageFormat}`;
+        
+        try {
+          const { url } = await storagePut(fileName, imageBuffer, contentType);
+          console.log(`[Nano-Banana-2] ✅ base64 圖片已上傳: ${url}`);
+          return url;
+        } catch (uploadError) {
+          console.error(`[Nano-Banana-2] base64 圖片上傳失敗:`, uploadError);
+          throw new Error("base64 圖片上傳失敗");
+        }
+      }
+      
+      // 檢查是否是純 base64 數據 (data:image/...;base64,...)
+      const base64DirectMatch = content.match(/data:image\/(\w+);base64,([A-Za-z0-9+/=]+)/);
+      if (base64DirectMatch) {
+        console.log(`[Nano-Banana-2] 檢測到純 base64 數據，正在上傳到存儲...`);
+        const imageFormat = base64DirectMatch[1];
+        const base64Data = base64DirectMatch[2];
+        
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const { storagePut } = await import("./storage");
+        const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
+        const contentType = `image/${imageFormat}`;
+        
+        try {
+          const { url } = await storagePut(fileName, imageBuffer, contentType);
+          console.log(`[Nano-Banana-2] ✅ base64 圖片已上傳: ${url}`);
+          return url;
+        } catch (uploadError) {
+          console.error(`[Nano-Banana-2] base64 圖片上傳失敗:`, uploadError);
+          throw new Error("base64 圖片上傳失敗");
+        }
+      }
+      
       // 如果 content 是 URL
       if (typeof content === 'string' && content.startsWith('http')) {
         imageUrl = content;
@@ -1139,7 +1185,7 @@ export async function generateNanoBananaImage(
   }
     
   if (!imageUrl) {
-    console.error(`[Nano-Banana-2] 無法解析圖片 URL，完整響應:`, JSON.stringify(data));
+    console.error(`[Nano-Banana-2] 無法解析圖片 URL，完整響應:`, JSON.stringify(data).substring(0, 1000));
     throw new Error("無法獲取 Nano-Banana-2 圖片 URL");
   }
 
