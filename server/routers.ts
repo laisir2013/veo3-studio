@@ -648,11 +648,18 @@ export const appRouter = router({
           segments: task.segments.map(seg => ({
             id: seg.id,
             status: seg.status,
+            batchIndex: seg.batchIndex,
+            startTime: seg.startTime,
+            endTime: seg.endTime,
+            progress: seg.progress || 0,
+            prompt: seg.prompt,
+            narration: seg.narration,
             videoUrl: seg.videoUrl,
             audioUrl: seg.audioUrl,
             imageUrl: (seg as any).imageUrl,
-            mediaType: seg.mediaType, // ✅ 新增：返回媒體類型
+            mediaType: seg.mediaType, // ✅ 返回媒體類型（圖片/視頻）
           })),
+          totalSegments: task.totalSegments,
         };
       }),
 
