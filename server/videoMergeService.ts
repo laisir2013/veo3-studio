@@ -1495,76 +1495,135 @@ export function isImageUrl(url: string): boolean {
  */
 export async function generateStillVideoFromImage(
   imageUrl: string,
-  durationSec: number = 3
+  durationSec: number = 3,
+  prompt: string = "A gentle, subtle motion with minimal movement, maintaining the original scene composition."
 ): Promise<string> {
-  console.log(`[StillVideo] 將圖片轉換為 ${durationSec} 秒靜態視頻...`);
+  console.log(`[StillVideo] 將圖片轉換為 ${durationSec} 秒視頻...`);
+  console.log(`[StillVideo] 圖片 URL: ${imageUrl.substring(0, 100)}...`);
   
-  // 使用 FFmpeg 將圖片轉換為視頻
-  // 這裡我們使用 Fal.ai 的 image-to-video 服務作為替代
   const { getNextApiKey, API_ENDPOINTS } = await import("./videoConfig");
   const apiKey = getNextApiKey();
   
+  // 方案 1：嘗試使用 Kling 圖片轉視頻
   try {
-    // 嘗試使用 VectorEngine 的圖片轉視頻 API
-    const response = await fetch(`${API_ENDPOINTS.vectorEngine}/v1/video/image-to-video`, {
+    console.log(`[StillVideo] 嘗試使用 Kling 圖片轉視頻...`);
+    const klingResponse = await fetch(`${API_ENDPOINTS.vectorEngine}/kling/v1/videos/image2video`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        image_url: imageUrl,
-        duration: durationSec,
-        motion_bucket_id: 20, // 低運動量，接近靜態
+        model_name: "kling-v1-6",
+        image: imageUrl,
+        prompt: prompt,
+        duration: "5",
+        mode: "std",
       }),
     });
 
-    if (!response.ok) {
-      console.warn(`[StillVideo] VectorEngine 圖片轉視頻失敗，返回原始圖片`);
-      return imageUrl;
-    }
-
-    const data = await response.json();
-    
-    // 如果是異步任務，需要輪詢
-    if (data.task_id || data.id) {
-      const taskId = data.task_id || data.id;
-      console.log(`[StillVideo] 任務已提交: ${taskId}`);
+    if (klingResponse.ok) {
+      const klingData = await klingResponse.json();
+      const taskId = klingData.data?.task_id;
       
-      // 輪詢等待完成
-      for (let i = 0; i < 30; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      if (taskId) {
+        console.log(`[StillVideo] Kling 任務已提交: ${taskId}`);
         
-        const statusRes = await fetch(`${API_ENDPOINTS.vectorEngine}/v1/video/status/${taskId}`, {
-          headers: { "Authorization": `Bearer ${apiKey}` }
-        });
-        
-        if (statusRes.ok) {
-          const statusData = await statusRes.json();
-          if (statusData.status === "COMPLETED" && statusData.video_url) {
-            console.log(`[StillVideo] 轉換成功: ${statusData.video_url}`);
-            return statusData.video_url;
-          }
-          if (statusData.status === "FAILED") {
-            console.warn(`[StillVideo] 轉換失敗，返回原始圖片`);
-            return imageUrl;
+        // 輪詢等待完成（最多 5 分鐘）
+        for (let i = 0; i < 60; i++) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          const queryResponse = await fetch(
+            `${API_ENDPOINTS.vectorEngine}/kling/v1/videos/image2video/${taskId}`,
+            { headers: { "Authorization": `Bearer ${apiKey}` } }
+          );
+
+          if (queryResponse.ok) {
+            const data = await queryResponse.json();
+            console.log(`[StillVideo] Kling 狀態: ${data.data?.task_status}`);
+            
+            if (data.data?.task_status === "succeed") {
+              const videoUrl = data.data.task_result?.videos?.[0]?.url;
+              if (videoUrl) {
+                console.log(`[StillVideo] ✅ Kling 轉換成功: ${videoUrl.substring(0, 100)}...`);
+                return videoUrl;
+              }
+            }
+            
+            if (data.data?.task_status === "failed") {
+              console.warn(`[StillVideo] Kling 生成失敗，嘗試 Runway...`);
+              break;
+            }
           }
         }
       }
+    } else {
+      console.warn(`[StillVideo] Kling API 返回 ${klingResponse.status}，嘗試 Runway...`);
     }
-    
-    // 直接返回結果
-    const videoUrl = data.video_url || data.url || data.output;
-    if (videoUrl) {
-      console.log(`[StillVideo] 轉換成功: ${videoUrl}`);
-      return videoUrl;
-    }
-    
-    return imageUrl;
   } catch (error) {
-    console.error(`[StillVideo] 轉換失敗:`, error);
-    return imageUrl;
+    console.error(`[StillVideo] Kling 失敗:`, error);
   }
+  
+  // 方案 2：嘗試使用 Runway 圖片轉視頻
+  try {
+    console.log(`[StillVideo] 嘗試使用 Runway 圖片轉視頻...`);
+    const runwayResponse = await fetch(`${API_ENDPOINTS.vectorEngine}/runwayml/v1/image_to_video`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gen3a_turbo",
+        promptImage: imageUrl,
+        promptText: prompt,
+        duration: 10,
+        ratio: "16:9",
+      }),
+    });
+
+    if (runwayResponse.ok) {
+      const runwayData = await runwayResponse.json();
+      const taskId = runwayData.id;
+      
+      if (taskId) {
+        console.log(`[StillVideo] Runway 任務已提交: ${taskId}`);
+        
+        // 輪詢等待完成（最多 5 分鐘）
+        for (let i = 0; i < 60; i++) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          const queryResponse = await fetch(
+            `${API_ENDPOINTS.vectorEngine}/runwayml/v1/tasks/${taskId}`,
+            { headers: { "Authorization": `Bearer ${apiKey}` } }
+          );
+
+          if (queryResponse.ok) {
+            const data = await queryResponse.json();
+            console.log(`[StillVideo] Runway 狀態: ${data.status}`);
+            
+            if (data.status === "SUCCEEDED" && data.output?.[0]) {
+              console.log(`[StillVideo] ✅ Runway 轉換成功: ${data.output[0].substring(0, 100)}...`);
+              return data.output[0];
+            }
+            
+            if (data.status === "FAILED") {
+              console.warn(`[StillVideo] Runway 生成失敗`);
+              break;
+            }
+          }
+        }
+      }
+    } else {
+      console.warn(`[StillVideo] Runway API 返回 ${runwayResponse.status}`);
+    }
+  } catch (error) {
+    console.error(`[StillVideo] Runway 失敗:`, error);
+  }
+  
+  // 所有方案都失敗，返回原始圖片
+  console.warn(`[StillVideo] ⚠️ 所有圖片轉視頻方案都失敗，返回原始圖片`);
+  return imageUrl;
 }
 
 /**
@@ -1577,110 +1636,33 @@ export async function generateStillVideoFromImage(
  */
 export async function generateMultiImageVideo(
   imageUrls: string[],
-  durationPerImage: number = 2.67
+  durationPerImage: number = 2.67,
+  prompts?: string[]
 ): Promise<string> {
-  console.log(`[MultiImageVideo] 開始合併 ${imageUrls.length} 張圖片為視頻，每張 ${durationPerImage} 秒`);
+  console.log(`[MultiImageVideo] 開始將 ${imageUrls.length} 張圖片轉換為視頻...`);
   
   if (imageUrls.length === 0) {
-    throw new Error("沒有圖片可以合併");
+    throw new Error("沒有圖片可以轉換");
   }
   
-  // 如果只有一張圖片，直接轉換
-  if (imageUrls.length === 1) {
-    return await generateStillVideoFromImage(imageUrls[0], durationPerImage);
-  }
+  // 方案：只轉換第一張圖片為視頻（簡化方案，避免耗費過多資源）
+  // 這樣可以確保混合模式能夠正常工作
+  console.log(`[MultiImageVideo] 使用第一張圖片轉換為視頻...`);
   
-  const { getNextApiKey, API_ENDPOINTS } = await import("./videoConfig");
-  const apiKey = getNextApiKey();
+  const prompt = prompts?.[0] || "A gentle, cinematic motion with subtle camera movement, bringing the scene to life.";
   
   try {
-    // 方案 1：使用 VectorEngine 的多圖片合併 API
-    const response = await fetch(`${API_ENDPOINTS.vectorEngine}/v1/video/slideshow`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        images: imageUrls,
-        duration_per_image: durationPerImage,
-        transition: "fade", // 淡入淡出過渡
-        transition_duration: 0.3,
-        output_format: "mp4",
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      
-      // 如果是異步任務
-      if (data.task_id || data.id) {
-        const taskId = data.task_id || data.id;
-        console.log(`[MultiImageVideo] 任務已提交: ${taskId}`);
-        
-        // 輪詢等待完成
-        for (let i = 0; i < 60; i++) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          const statusRes = await fetch(`${API_ENDPOINTS.vectorEngine}/v1/video/status/${taskId}`, {
-            headers: { "Authorization": `Bearer ${apiKey}` }
-          });
-          
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            if (statusData.status === "COMPLETED" && statusData.video_url) {
-              console.log(`[MultiImageVideo] 合併成功: ${statusData.video_url}`);
-              return statusData.video_url;
-            }
-            if (statusData.status === "FAILED") {
-              throw new Error("視頻合併失敗");
-            }
-          }
-        }
-      }
-      
-      // 直接返回結果
-      const videoUrl = data.video_url || data.url || data.output;
-      if (videoUrl) {
-        console.log(`[MultiImageVideo] 合併成功: ${videoUrl}`);
-        return videoUrl;
-      }
-    }
+    const videoUrl = await generateStillVideoFromImage(imageUrls[0], durationPerImage, prompt);
     
-    // 方案 2：如果 slideshow API 不可用，逐個轉換並合併
-    console.log(`[MultiImageVideo] Slideshow API 不可用，使用逐個轉換方案...`);
-    
-    // 將每張圖片轉換為視頻
-    const videoUrls: string[] = [];
-    for (let i = 0; i < imageUrls.length; i++) {
-      console.log(`[MultiImageVideo] 轉換圖片 ${i + 1}/${imageUrls.length}...`);
-      const videoUrl = await generateStillVideoFromImage(imageUrls[i], durationPerImage);
-      if (!isImageUrl(videoUrl)) {
-        videoUrls.push(videoUrl);
-      }
-    }
-    
-    if (videoUrls.length === 0) {
-      // 如果所有轉換都失敗，返回第一張圖片
-      console.warn(`[MultiImageVideo] 所有圖片轉視頻都失敗，返回第一張圖片`);
+    if (!isImageUrl(videoUrl)) {
+      console.log(`[MultiImageVideo] ✅ 圖片轉視頻成功: ${videoUrl.substring(0, 100)}...`);
+      return videoUrl;
+    } else {
+      console.warn(`[MultiImageVideo] 圖片轉視頻失敗，返回原始圖片`);
       return imageUrls[0];
     }
-    
-    if (videoUrls.length === 1) {
-      return videoUrls[0];
-    }
-    
-    // 合併多個視頻片段
-    // 這裡可以調用現有的 mergeVideos 函數
-    console.log(`[MultiImageVideo] 合併 ${videoUrls.length} 個視頻片段...`);
-    
-    // 簡化處理：返回第一個視頻（後續可以優化為真正的合併）
-    // TODO: 實現真正的多視頻合併
-    return videoUrls[0];
-    
   } catch (error) {
-    console.error(`[MultiImageVideo] 合併失敗:`, error);
-    // 失敗時返回第一張圖片
+    console.error(`[MultiImageVideo] 轉換失敗:`, error);
     return imageUrls[0];
   }
 }

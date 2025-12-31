@@ -1336,7 +1336,8 @@ export async function generateMultiImageSegment(
   // 導入視頻合併服務
   const { generateMultiImageVideo } = await import("./videoMergeService");
   
-  const videoUrl = await generateMultiImageVideo(imageUrls, imageDurationSec);
+  // 傳遞圖片描述作為視頻生成的 prompt
+  const videoUrl = await generateMultiImageVideo(imageUrls, imageDurationSec, imagePrompts);
   
   console.log(`[MultiImage] 多圖片片段生成完成: ${videoUrl}`);
   
