@@ -1393,6 +1393,198 @@ export const appRouter = router({
         return { success };
       }),
   }),
+
+  // 🔧 診斷測試路由
+  diagnostic: router({
+    // 測試單個圖片生成器
+    testImageGenerator: publicProcedure
+      .input(z.object({
+        generator: z.enum(["nano-banana", "dalle3", "flux"]),
+        prompt: z.string().default("A beautiful red apple on a white table, photorealistic, high quality"),
+      }))
+      .mutation(async ({ input }) => {
+        const { generateNanoBananaImage, generateImageWithDallE3, generateImageWithFlux } = await import("./videoService");
+        
+        console.log(`\n========== 🔍 圖片生成器診斷測試 ==========`);
+        console.log(`生成器: ${input.generator}`);
+        console.log(`Prompt: ${input.prompt}`);
+        console.log(`時間: ${new Date().toISOString()}`);
+        
+        const startTime = Date.now();
+        
+        try {
+          let imageUrl: string;
+          
+          switch (input.generator) {
+            case "nano-banana":
+              imageUrl = await generateNanoBananaImage(input.prompt);
+              break;
+            case "dalle3":
+              imageUrl = await generateImageWithDallE3(input.prompt);
+              break;
+            case "flux":
+              imageUrl = await generateImageWithFlux(input.prompt);
+              break;
+          }
+          
+          const duration = Date.now() - startTime;
+          
+          console.log(`✅ 生成成功:`, {
+            generator: input.generator,
+            url: imageUrl.substring(0, 100),
+            duration: `${duration}ms`,
+            urlValid: imageUrl.startsWith('http') || imageUrl.startsWith('data:'),
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: true,
+            generator: input.generator,
+            imageUrl,
+            duration,
+          };
+        } catch (error: any) {
+          const duration = Date.now() - startTime;
+          
+          console.error(`❌ 生成失敗:`, {
+            generator: input.generator,
+            message: error.message,
+            stack: error.stack?.substring(0, 500),
+            response: error.response?.data,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            duration: `${duration}ms`,
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: false,
+            generator: input.generator,
+            error: error.message,
+            errorDetails: {
+              stack: error.stack?.substring(0, 500),
+              response: error.response?.data,
+              status: error.response?.status,
+            },
+            duration,
+          };
+        }
+      }),
+
+    // 測試 LLM 圖片描述拆分
+    testImageSplit: publicProcedure
+      .input(z.object({
+        description: z.string().default("A man walking through a busy city street at sunset"),
+        narration: z.string().default("He walked through the crowded streets, thinking about his future."),
+      }))
+      .mutation(async ({ input }) => {
+        const { splitImagePromptForSegment } = await import("./videoService");
+        
+        console.log(`\n========== 🔍 LLM 圖片拆分診斷測試 ==========`);
+        console.log(`描述: ${input.description}`);
+        console.log(`旁白: ${input.narration}`);
+        console.log(`時間: ${new Date().toISOString()}`);
+        
+        const startTime = Date.now();
+        
+        try {
+          const imagePrompts = await splitImagePromptForSegment(
+            input.description,
+            input.narration,
+            "gpt-4o-mini"
+          );
+          
+          const duration = Date.now() - startTime;
+          
+          console.log(`✅ 拆分成功:`, {
+            promptCount: imagePrompts.length,
+            prompts: imagePrompts.map((p, i) => `圖片${i+1}: ${p.substring(0, 60)}...`),
+            duration: `${duration}ms`,
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: true,
+            imagePrompts,
+            duration,
+          };
+        } catch (error: any) {
+          const duration = Date.now() - startTime;
+          
+          console.error(`❌ 拆分失敗:`, {
+            message: error.message,
+            stack: error.stack?.substring(0, 500),
+            duration: `${duration}ms`,
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: false,
+            error: error.message,
+            duration,
+          };
+        }
+      }),
+
+    // 測試完整的多圖片生成流程
+    testMultiImageSegment: publicProcedure
+      .input(z.object({
+        description: z.string().default("A man walking through a busy city street at sunset"),
+        narration: z.string().default("He walked through the crowded streets, thinking about his future."),
+      }))
+      .mutation(async ({ input }) => {
+        const { generateMultiImageSegment } = await import("./videoService");
+        
+        console.log(`\n========== 🔍 完整多圖片生成診斷測試 ==========`);
+        console.log(`描述: ${input.description}`);
+        console.log(`旁白: ${input.narration}`);
+        console.log(`時間: ${new Date().toISOString()}`);
+        
+        const startTime = Date.now();
+        
+        try {
+          const result = await generateMultiImageSegment(
+            input.description,
+            input.narration,
+            "gpt-4o-mini",
+            2.67
+          );
+          
+          const duration = Date.now() - startTime;
+          
+          console.log(`✅ 生成成功:`, {
+            imageCount: result.imageUrls.length,
+            primaryUrl: result.videoUrl.substring(0, 80),
+            allUrls: result.imageUrls.map((u, i) => `圖片${i+1}: ${u.substring(0, 60)}...`),
+            duration: `${duration}ms`,
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: true,
+            videoUrl: result.videoUrl,
+            imageUrls: result.imageUrls,
+            duration,
+          };
+        } catch (error: any) {
+          const duration = Date.now() - startTime;
+          
+          console.error(`❌ 生成失敗:`, {
+            message: error.message,
+            stack: error.stack?.substring(0, 500),
+            duration: `${duration}ms`,
+          });
+          console.log(`==========================================\n`);
+          
+          return {
+            success: false,
+            error: error.message,
+            errorStack: error.stack?.substring(0, 500),
+            duration,
+          };
+        }
+      }),
+  }),
 });
 
 // 異步視頻生成函數
