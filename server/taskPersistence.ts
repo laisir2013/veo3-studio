@@ -12,25 +12,52 @@ import type { LongVideoTask, TaskSummary } from './types/task';
 // 數據目錄配置
 // ========================================
 
-const DATADIR = process.env.TASKDATADIR || path.join(process.cwd(), 'data', 'tasks');
+// Render Disk 掛載路徑優先，其次是環境變量，最後是本地路徑
+const DATADIR = process.env.TASKDATADIR || 
+  process.env.DATA_DIR || 
+  path.join(process.cwd(), 'data', 'tasks');
 const INDEXFILE = path.join(DATADIR, 'index.json');
 
-console.log(`📁 [Persistence] 數據目錄: ${DATADIR}`);
+console.log(`📁 [Persistence] 初始化配置:`);
+console.log(`  - TASKDATADIR: ${process.env.TASKDATADIR || '未設置'}`);
+console.log(`  - DATA_DIR: ${process.env.DATA_DIR || '未設置'}`);
+console.log(`  - 最終數據目錄: ${DATADIR}`);
+console.log(`  - 當前工作目錄: ${process.cwd()}`);
 
 // 初始化數據目錄
 async function ensureDataDir(): Promise<void> {
   try {
+    // 檢查目錄是否存在
     await fs.access(DATADIR);
-  } catch {
-    await fs.mkdir(DATADIR, { recursive: true });
-    console.log(`✅ [Persistence] 創建數據目錄: ${DATADIR}`);
+    console.log(`✅ [Persistence] 數據目錄已存在: ${DATADIR}`);
+  } catch (error: any) {
+    // 目錄不存在，創建它
+    try {
+      await fs.mkdir(DATADIR, { recursive: true });
+      console.log(`✅ [Persistence] 數據目錄已創建: ${DATADIR}`);
+      
+      // 驗證目錄是否可寫
+      const testFile = path.join(DATADIR, '.test');
+      await fs.writeFile(testFile, 'test', 'utf-8');
+      await fs.unlink(testFile);
+      console.log(`✅ [Persistence] 數據目錄可寫入`);
+    } catch (createError: any) {
+      console.error(`❌ [Persistence] 創建/驗證數據目錄失敗:`, createError.message);
+      throw createError;
+    }
   }
 }
 
-// 服務啟動時初始化
-ensureDataDir().catch(err => {
-  console.error(`❌ [Persistence] 初始化失敗:`, err.message);
-});
+// 服務啟動時立即初始化（不使用 catch，讓錯誤顯示）
+console.log(`⏳ [Persistence] 初始化數據目錄...`);
+ensureDataDir()
+  .then(() => {
+    console.log(`✅ [Persistence] 初始化完成`);
+  })
+  .catch(err => {
+    console.error(`❌ [Persistence] 初始化失敗:`, err.message);
+    console.error(`❌ [Persistence] 堆棧跟蹤:`, err.stack);
+  });
 
 // ========================================
 // 核心函數（全部異步）
@@ -62,6 +89,9 @@ export async function saveTask(task: LongVideoTask): Promise<void> {
 
   } catch (error: any) {
     console.error(`❌ [Persistence] 保存任務失敗:`, error.message);
+    console.error(`  - taskId: ${task.taskId}`);
+    console.error(`  - 目標路徑: ${path.join(DATADIR, `${task.taskId}.json`)}`);
+    console.error(`  - 堆棧: ${error.stack}`);
     throw new Error(`保存任務失敗: ${error.message}`);
   }
 }
