@@ -373,7 +373,7 @@ export async function generateCharacterImage(prompt: string, mode: string): Prom
 }
 
 // 使用 DALL-E 3 生成圖片（備用方案）
-async function generateImageWithDallE3(prompt: string): Promise<string> {
+export async function generateImageWithDallE3(prompt: string): Promise<string> {
   const apiKey = getNextApiKey();
   
   console.log(`[Image] 使用 DALL-E 3 生成圖片`);
@@ -412,7 +412,7 @@ async function generateImageWithDallE3(prompt: string): Promise<string> {
 }
 
 // 使用 Flux 生成圖片（備用方案）
-async function generateImageWithFlux(prompt: string): Promise<string> {
+export async function generateImageWithFlux(prompt: string): Promise<string> {
   const apiKey = getNextApiKey();
   
   console.log(`[Image] 使用 Flux 生成圖片`);
@@ -1106,45 +1106,50 @@ export async function generateNanoBananaImage(
       // 檢查是否是 Markdown 格式的 base64 圖片: ![image](data:image/...;base64,...)
       const base64MarkdownMatch = content.match(/!\[.*?\]\(data:image\/(\w+);base64,([A-Za-z0-9+/=]+)\)/);
       if (base64MarkdownMatch) {
-        console.log(`[Nano-Banana-2] 檢測到 base64 圖片格式，正在上傳到存儲...`);
+        console.log(`[Nano-Banana-2] 檢測到 base64 圖片格式`);
         const imageFormat = base64MarkdownMatch[1]; // jpeg, png, etc.
         const base64Data = base64MarkdownMatch[2];
         
-        // 將 base64 轉換為 Buffer 並上傳到存儲
-        const imageBuffer = Buffer.from(base64Data, 'base64');
-        const { storagePut } = await import("./storage");
-        const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
-        const contentType = `image/${imageFormat}`;
-        
+        // 嘗試上傳到存儲服務
         try {
+          const imageBuffer = Buffer.from(base64Data, 'base64');
+          const { storagePut } = await import("./storage");
+          const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
+          const contentType = `image/${imageFormat}`;
           const { url } = await storagePut(fileName, imageBuffer, contentType);
           console.log(`[Nano-Banana-2] ✅ base64 圖片已上傳: ${url}`);
           return url;
         } catch (uploadError) {
-          console.error(`[Nano-Banana-2] base64 圖片上傳失敗:`, uploadError);
-          throw new Error("base64 圖片上傳失敗");
+          // ✅ 回退方案：直接返回 Data URL
+          console.warn(`[Nano-Banana-2] 存儲上傳失敗，使用 Data URL 回退方案`);
+          const dataUrl = `data:image/${imageFormat};base64,${base64Data}`;
+          console.log(`[Nano-Banana-2] ✅ 使用 Data URL (長度: ${dataUrl.length} 字符)`);
+          return dataUrl;
         }
       }
       
       // 檢查是否是純 base64 數據 (data:image/...;base64,...)
       const base64DirectMatch = content.match(/data:image\/(\w+);base64,([A-Za-z0-9+/=]+)/);
       if (base64DirectMatch) {
-        console.log(`[Nano-Banana-2] 檢測到純 base64 數據，正在上傳到存儲...`);
+        console.log(`[Nano-Banana-2] 檢測到純 base64 數據`);
         const imageFormat = base64DirectMatch[1];
         const base64Data = base64DirectMatch[2];
         
-        const imageBuffer = Buffer.from(base64Data, 'base64');
-        const { storagePut } = await import("./storage");
-        const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
-        const contentType = `image/${imageFormat}`;
-        
+        // 嘗試上傳到存儲服務
         try {
+          const imageBuffer = Buffer.from(base64Data, 'base64');
+          const { storagePut } = await import("./storage");
+          const fileName = `nano-banana/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageFormat}`;
+          const contentType = `image/${imageFormat}`;
           const { url } = await storagePut(fileName, imageBuffer, contentType);
           console.log(`[Nano-Banana-2] ✅ base64 圖片已上傳: ${url}`);
           return url;
         } catch (uploadError) {
-          console.error(`[Nano-Banana-2] base64 圖片上傳失敗:`, uploadError);
-          throw new Error("base64 圖片上傳失敗");
+          // ✅ 回退方案：直接返回 Data URL
+          console.warn(`[Nano-Banana-2] 存儲上傳失敗，使用 Data URL 回退方案`);
+          const dataUrl = `data:image/${imageFormat};base64,${base64Data}`;
+          console.log(`[Nano-Banana-2] ✅ 使用 Data URL (長度: ${dataUrl.length} 字符)`);
+          return dataUrl;
         }
       }
       
