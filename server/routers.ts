@@ -625,7 +625,8 @@ export const appRouter = router({
           imagePercent: imagePercent,
           videoPercent: videoPercent,
         });
-        startNextBatch(task.id);
+        // ✅ 移除多餘的 startNextBatch 調用，讓 processLongVideoTask 來處理所有批次
+        // startNextBatch(task.id); // 這行會導致第 1 批被跳過
         // 異步啟動實際的片段生成處理
         processLongVideoTask(task.id).catch(err => {
           console.error(`[LongVideo ${task.id}] 處理失敗:`, err);
