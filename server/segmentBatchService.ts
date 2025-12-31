@@ -150,8 +150,168 @@ export interface LongVideoTask {
   };
 }
 
-// 任務存儲（內存中，實際應該存數據庫）
+// 任務存儲（內存中 + SQLite 持久化）
 const longVideoTasks = new Map<string, LongVideoTask>();
+
+// ========================================
+// SQLite 持久化層
+// ========================================
+
+let dbModule: typeof import('./database') | null = null;
+let dbInitialized = false;
+
+// 嘗試初始化 SQLite
+async function initDatabase(): Promise<void> {
+  if (dbInitialized) return;
+  
+  try {
+    dbModule = await import('./database');
+    
+    // 從數據庫加載現有任務到內存
+    const tasks = dbModule.getAllTasks(1000, 0);
+    console.log(`📦 [SQLite] 從數據庫加載 ${tasks.length} 個任務`);
+    
+    for (const dbTask of tasks) {
+      // 轉換數據庫格式到內存格式
+      const memTask = convertDbTaskToMemory(dbTask);
+      longVideoTasks.set(memTask.id, memTask);
+    }
+    
+    dbInitialized = true;
+    console.log('✅ [SQLite] 持久化層已初始化');
+  } catch (error) {
+    console.warn('⚠️ [SQLite] 持久化層初始化失敗，使用純內存模式:', error);
+    dbModule = null;
+  }
+}
+
+// 轉換數據庫任務格式到內存格式
+function convertDbTaskToMemory(dbTask: any): LongVideoTask {
+  return {
+    id: dbTask.taskId,
+    userId: dbTask.userId,
+    totalDurationMinutes: dbTask.duration || 1,
+    totalSegments: dbTask.segments?.length || 0,
+    totalBatches: dbTask.batches?.length || 0,
+    segments: (dbTask.segments || []).map((s: any, i: number) => ({
+      id: s.index + 1,
+      batchIndex: Math.floor(i / BATCH_SIZE),
+      status: s.status || 'pending',
+      progress: s.progress || 0,
+      videoUrl: s.videoUrl,
+      audioUrl: s.audioUrl,
+      imageUrl: s.imageUrl,
+      imageUrls: s.imageUrls,
+      narration: s.narration || s.videoDescription,
+      error: s.error,
+      startTime: i * SEGMENT_DURATION,
+      endTime: (i + 1) * SEGMENT_DURATION,
+      prompt: s.videoDescription,
+      mediaType: s.mediaType || 'video',
+      generatingStatus: s.generatingStatus,
+    })),
+    batches: (dbTask.batches || []).map((b: any) => ({
+      index: b.batchIndex,
+      segments: [],
+      status: b.status || 'pending',
+      apiKeyGroupIndex: b.batchIndex % API_KEY_GROUPS.length,
+      startedAt: b.startedAt ? new Date(b.startedAt) : undefined,
+      completedAt: b.completedAt ? new Date(b.completedAt) : undefined,
+    })),
+    status: dbTask.status === 'segments_completed' ? 'generating' : (dbTask.status || 'pending'),
+    progress: dbTask.progress || 0,
+    currentBatchIndex: 0,
+    story: dbTask.topic || '',
+    language: (dbTask.language as any) || 'cantonese',
+    voiceActorId: dbTask.voiceActorId || 'cantonese-male-narrator',
+    speedMode: 'fast',
+    storyMode: 'character',
+    llmModel: 'gpt-4o-mini',
+    videoModel: 'veo-3.1',
+    imageModel: 'midjourney-v6',
+    bgmType: dbTask.bgmType || 'none',
+    subtitleStyle: dbTask.subtitleStyle || 'none',
+    videoPercent: 50,
+    imagePercent: 50,
+    imageDuration: '3s',
+    subtitleEnabled: true,
+    subtitleMode: 'auto',
+    subtitleFont: 'noto-sans-tc',
+    subtitleFontSize: 'medium',
+    subtitleFontColor: 'white',
+    subtitleBoxStyle: 'shadow',
+    subtitlePosition: 'bottom-center',
+    createdAt: new Date(dbTask.createdAt),
+    updatedAt: new Date(dbTask.updatedAt),
+    completedAt: dbTask.completedAt ? new Date(dbTask.completedAt) : undefined,
+    finalVideoUrl: dbTask.finalVideoUrl,
+    error: dbTask.error,
+  };
+}
+
+// 轉換內存任務格式到數據庫格式
+function convertMemoryTaskToDb(memTask: LongVideoTask): any {
+  return {
+    taskId: memTask.id,
+    userId: memTask.userId,
+    status: memTask.status === 'generating' ? 'generating_segments' : memTask.status,
+    progress: memTask.progress,
+    topic: memTask.story,
+    duration: memTask.totalDurationMinutes,
+    style: memTask.videoPercent >= 100 ? 'video' : (memTask.videoPercent <= 0 ? 'image' : 'mixed'),
+    language: memTask.language,
+    voiceActorId: memTask.voiceActorId,
+    script: memTask.story,
+    segments: memTask.segments.map(s => ({
+      index: s.id - 1,
+      status: s.status,
+      narration: s.narration,
+      videoDescription: s.prompt || s.narration,
+      mediaType: s.mediaType,
+      videoUrl: s.videoUrl,
+      audioUrl: s.audioUrl,
+      imageUrl: s.imageUrl,
+      imageUrls: s.imageUrls,
+      generatingStatus: s.generatingStatus,
+      progress: s.progress,
+      error: s.error,
+    })),
+    batches: memTask.batches.map(b => ({
+      batchIndex: b.index,
+      status: b.status,
+      segmentIndices: b.segments.map(s => s.id - 1),
+      startedAt: b.startedAt?.toISOString(),
+      completedAt: b.completedAt?.toISOString(),
+    })),
+    finalVideoUrl: memTask.finalVideoUrl,
+    bgmType: memTask.bgmType,
+    subtitleStyle: memTask.subtitleStyle,
+    error: memTask.error,
+    createdAt: memTask.createdAt.toISOString(),
+    updatedAt: memTask.updatedAt.toISOString(),
+    completedAt: memTask.completedAt?.toISOString(),
+  };
+}
+
+// 同步任務到 SQLite
+function syncTaskToDb(task: LongVideoTask): void {
+  if (!dbModule) return;
+  
+  try {
+    const dbTask = convertMemoryTaskToDb(task);
+    
+    if (dbModule.taskExists(task.id)) {
+      dbModule.updateTask(task.id, dbTask);
+    } else {
+      dbModule.createTask(dbTask);
+    }
+  } catch (error) {
+    console.error(`❌ [SQLite] 同步任務失敗: ${task.id}`, error);
+  }
+}
+
+// 啟動時初始化數據庫
+initDatabase().catch(console.error);
 
 /**
  * 計算指定時長需要的片段數量
@@ -287,6 +447,10 @@ export function createLongVideoTask(
   };
   
   longVideoTasks.set(taskId, task);
+  
+  // ✅ 同步到 SQLite
+  syncTaskToDb(task);
+  
   return task;
 }
 
@@ -294,7 +458,24 @@ export function createLongVideoTask(
  * 獲取長視頻任務
  */
 export function getLongVideoTask(taskId: string): LongVideoTask | undefined {
-  return longVideoTasks.get(taskId);
+  // 先從內存獲取
+  let task = longVideoTasks.get(taskId);
+  
+  // 如果內存沒有，嘗試從 SQLite 獲取
+  if (!task && dbModule) {
+    try {
+      const dbTask = dbModule.getTask(taskId);
+      if (dbTask) {
+        task = convertDbTaskToMemory(dbTask);
+        longVideoTasks.set(taskId, task);
+        console.log(`📦 [SQLite] 從數據庫恢復任務: ${taskId}`);
+      }
+    } catch (error) {
+      console.error(`❌ [SQLite] 獲取任務失敗: ${taskId}`, error);
+    }
+  }
+  
+  return task;
 }
 
 /**
@@ -305,6 +486,9 @@ export function updateLongVideoTask(taskId: string, updates: Partial<LongVideoTa
   if (task) {
     Object.assign(task, updates, { updatedAt: new Date() });
     longVideoTasks.set(taskId, task);
+    
+    // ✅ 同步到 SQLite
+    syncTaskToDb(task);
   }
 }
 
@@ -337,6 +521,9 @@ export function updateSegment(taskId: string, segmentId: number, updates: Partia
       
       task.updatedAt = new Date();
       longVideoTasks.set(taskId, task);
+      
+      // ✅ 同步到 SQLite
+      syncTaskToDb(task);
     }
   }
 }
