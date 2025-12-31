@@ -109,7 +109,106 @@ async function startServer() {
     }
   });
   
-  // 生成字幕 API
+  // ✅ 智能字幕 API（使用 AI 識別語音時間）
+  app.post("/api/generate-smart-subtitles", async (req, res) => {
+    try {
+      const { taskId, segments, audioUrl, useAI } = req.body;
+      
+      if (!taskId || !segments || !Array.isArray(segments)) {
+        return res.status(400).json({ success: false, error: "缺少必要參數" });
+      }
+      
+      // 1. 獲取任務信息
+      const { getLongVideoTask } = await import("../segmentBatchService");
+      const task = getLongVideoTask(taskId);
+      
+      if (!task) {
+        return res.status(404).json({ success: false, error: "任務不存在" });
+      }
+      
+      // 2. 準備腳本段落
+      const scriptSegments = segments.map((seg: any) => seg.narration || "").filter((t: string) => t);
+      
+      if (scriptSegments.length === 0) {
+        return res.status(400).json({ success: false, error: "沒有有效的旁白內容" });
+      }
+      
+      // 3. 根據是否有音頻和是否啟用 AI 選擇處理方式
+      const { processSubtitlesWithAI, generateSubtitlesFromText, generateSRT, generateASS } = await import("../smartSubtitleService");
+      
+      let subtitles;
+      
+      if (useAI && audioUrl) {
+        // 使用 AI 識別語音時間
+        console.log(`[SmartSubtitle] 使用 AI 模式處理字幕，音頻: ${audioUrl}`);
+        
+        // 下載音頻到臨時文件
+        const fs = await import("fs");
+        const path = await import("path");
+        const audioResponse = await fetch(audioUrl);
+        if (!audioResponse.ok) {
+          throw new Error(`無法下載音頻: ${audioResponse.status}`);
+        }
+        const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+        const tempAudioPath = path.join("/tmp", `audio_${Date.now()}.mp3`);
+        fs.writeFileSync(tempAudioPath, audioBuffer);
+        
+        try {
+          // 獲取 API Key
+          const apiKey = process.env.OPENAI_API_KEY || "";
+          subtitles = await processSubtitlesWithAI(scriptSegments, tempAudioPath, apiKey);
+        } finally {
+          // 清理臨時文件
+          if (fs.existsSync(tempAudioPath)) {
+            fs.unlinkSync(tempAudioPath);
+          }
+        }
+      } else {
+        // 使用文本模式（固定時長分段）
+        console.log(`[SmartSubtitle] 使用文本模式處理字幕`);
+        const segmentDuration = 8; // 每個片段 8 秒
+        subtitles = generateSubtitlesFromText(scriptSegments, segmentDuration);
+      }
+      
+      // 4. 上傳字幕文件
+      const { storagePut } = await import("../storage");
+      const srtFileName = `subtitles/${taskId}_${Date.now()}.srt`;
+      const assFileName = `subtitles/${taskId}_${Date.now()}.ass`;
+      
+      const { url: srtUrl } = await storagePut(srtFileName, Buffer.from(subtitles.srtContent, "utf-8"), "text/plain");
+      const { url: assUrl } = await storagePut(assFileName, Buffer.from(subtitles.assContent, "utf-8"), "text/plain");
+      
+      // 5. 更新任務
+      updateLongVideoTask(taskId, { 
+        subtitles: {
+          language: task.language || "cantonese",
+          segments: subtitles.segments.map((s, i) => ({
+            id: i + 1,
+            startTime: Math.round(s.startTime * 1000),
+            endTime: Math.round(s.endTime * 1000),
+            text: s.text,
+            confidence: 1.0
+          }))
+        }
+      });
+      
+      res.json({
+        success: true,
+        subtitles: subtitles.segments,
+        srtUrl,
+        assUrl,
+        totalDuration: subtitles.totalDuration
+      });
+    } catch (error) {
+      console.error("智能字幕生成失敗:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "生成失敗"
+      });
+    }
+  });
+  
+  // 生成字幕 API（原有 API，保持兼容）
   app.post("/api/generate-subtitles", async (req, res) => {
     try {
       const { taskId, segments } = req.body;
@@ -137,9 +236,8 @@ async function startServer() {
       // 3. 調用字幕生成服務
       const { generateSubtitlesFromText } = await import("../subtitleService");
       // 這裡假設前端傳遞的 segments 已經是最終的片段，每個片段時長 8 秒
-      // 由於 segments 中沒有 duration，我們從 task 中獲取
-      const segmentDuration = task.segmentDuration || 8;
-      const subtitleTrack = await generateSubtitlesFromText(narrationSegments, segmentDuration, language);
+      const segmentDuration = 8;
+      const subtitleTrack = await generateSubtitlesFromText(narrationSegments, segmentDuration);
       
       // 4. 上傳字幕檔案
       const { uploadSubtitleFile } = await import("../subtitleMergeService");

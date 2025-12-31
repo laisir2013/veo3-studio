@@ -135,6 +135,17 @@ export interface LongVideoTask {
   completedAt?: Date;
   finalVideoUrl?: string;
   error?: string;
+  // 字幕數據
+  subtitles?: {
+    language: string;
+    segments: Array<{
+      id: number;
+      startTime: number;
+      endTime: number;
+      text: string;
+      confidence?: number;
+    }>;
+  };
 }
 
 // 任務存儲（內存中，實際應該存數據庫）
