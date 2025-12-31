@@ -658,6 +658,7 @@ export const appRouter = router({
             audioUrl: seg.audioUrl,
             imageUrl: (seg as any).imageUrl,
             mediaType: seg.mediaType, // ✅ 返回媒體類型（圖片/視頻）
+            generatingStatus: seg.generatingStatus, // ✅ 返回生成狀態詳情
           })),
           totalSegments: task.totalSegments,
         };
@@ -1997,6 +1998,15 @@ async function processLongVideoTask(taskId: string): Promise<void> {
           
           console.log(`[LongVideo ${taskId}] 生成片段 ${segment.id}/${task.totalSegments} (類型: ${mediaType})`);
           
+          // ✅ 更新片段狀態為 generating，並顯示正在生成的內容
+          const sceneDataPreview = analysisResult.scenes[Math.min(segment.id - 1, analysisResult.scenes.length - 1)];
+          const promptPreview = (sceneDataPreview?.description || `Scene ${segment.id}`).substring(0, 60);
+          updateSegment(taskId, segment.id, {
+            status: "generating",
+            progress: 10,
+            generatingStatus: `🎨 正在生成【${mediaType}】：${promptPreview}...`,
+          });
+          
           // 實際生成視頻片段
           const sceneData = analysisResult.scenes[Math.min(segment.id - 1, analysisResult.scenes.length - 1)];
           
@@ -2013,6 +2023,11 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             
             if (isVideoSegment) {
               // 2a. 生成視頻 (參數順序: imageUrl, prompt, videoModel)
+              updateSegment(taskId, segment.id, {
+                status: "generating",
+                progress: 30,
+                generatingStatus: `🎬 正在使用 ${task.videoModel || 'VEO'} 生成視頻...`,
+              });
               videoUrl = await generateVideo(
                 imageUrl,
                 sceneData?.description || `Video scene ${segment.id}`,
@@ -2021,6 +2036,12 @@ async function processLongVideoTask(taskId: string): Promise<void> {
             } else {
               // 2b. 📷 圖片模式：將 1 個場景拆分為 3 張圖片
               console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 使用圖片模式，正在生成 3 張遞進圖片...`);
+              
+              updateSegment(taskId, segment.id, {
+                status: "generating",
+                progress: 30,
+                generatingStatus: `🖼️ 正在使用 Nano-Banana 生成 3 張遞進圖片...`,
+              });
               
               // 獲取旁白文字用於圖片描述拆分
               let narrationForSplit = `Scene ${segment.id}`;
@@ -2084,6 +2105,13 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               narrationPreview: narrationText.substring(0, 30) + '...',
               voiceActorId,
               language: task.language || 'cantonese',
+            });
+            
+            // ✅ 更新狀態：正在生成音頻
+            updateSegment(taskId, segment.id, {
+              status: "generating",
+              progress: 70,
+              generatingStatus: `🎤 正在生成語音旁白：${narrationText.substring(0, 40)}...`,
             });
             
             try {

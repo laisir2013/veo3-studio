@@ -71,6 +71,7 @@ export interface Segment {
   prompt?: string;
   narrationSegmentIndex?: number;
   mediaType?: "image" | "video"; // ✅ 新增：混合模式中的媒體類型
+  generatingStatus?: string; // ✅ 新增：生成狀態詳情（如「正在生成圖片 1/3」）
 }
 
 // 批次狀態

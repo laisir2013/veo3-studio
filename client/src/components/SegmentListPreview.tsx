@@ -84,6 +84,7 @@ export interface SegmentData {
   description?: string;
   voiceActorId?: string;
   mediaType?: "image" | "video"; // 混合模式：圖片或視頻類型
+  generatingStatus?: string; // 生成狀態詳情（如「正在生成圖片 1/3」）
 }
 
 interface SegmentListPreviewProps {
@@ -265,7 +266,7 @@ function SegmentGridOverview({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <div className="text-sm">
+                  <div className="text-sm max-w-xs">
                     <div className="font-medium">片段 #{segment.id}</div>
                     <div className="text-xs text-muted-foreground">
                       {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
@@ -277,7 +278,14 @@ function SegmentGridOverview({
                       </div>
                     )}
                     {segment.status === "generating" && (
-                      <div className="text-xs">進度: {segment.progress}%</div>
+                      <>
+                        <div className="text-xs">進度: {segment.progress}%</div>
+                        {segment.generatingStatus && (
+                          <div className="text-xs text-yellow-400 mt-1 break-words">
+                            {segment.generatingStatus}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </TooltipContent>

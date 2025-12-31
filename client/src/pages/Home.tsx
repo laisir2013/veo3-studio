@@ -1412,6 +1412,7 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                           audioUrl: seg.audioUrl,
                           imageUrl: seg.imageUrl,
                           mediaType: seg.mediaType as "image" | "video" | undefined, // ✅ 新增：媒體類型
+                          generatingStatus: seg.generatingStatus, // ✅ 新增：生成狀態詳情
                         }));
                       }
                       // 其次使用舊的 video 任務數據（taskStatus.scenes）
