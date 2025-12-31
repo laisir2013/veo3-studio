@@ -626,6 +626,10 @@ export const appRouter = router({
           videoPercent: videoPercent,
         });
         startNextBatch(task.id);
+        // 異步啟動實際的片段生成處理
+        processLongVideoTask(task.id).catch(err => {
+          console.error(`[LongVideo ${task.id}] 處理失敗:`, err);
+        });
         return { taskId: task.id, success: true };
       }),
 
