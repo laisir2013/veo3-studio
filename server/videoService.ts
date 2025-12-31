@@ -411,6 +411,81 @@ async function generateImageWithDallE3(prompt: string): Promise<string> {
   return imageUrl;
 }
 
+// 使用 Flux 生成圖片（備用方案）
+async function generateImageWithFlux(prompt: string): Promise<string> {
+  const apiKey = getNextApiKey();
+  
+  console.log(`[Image] 使用 Flux 生成圖片`);
+  
+  const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/fal-ai/flux/dev`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      prompt: prompt,
+      image_size: "landscape_16_9",
+      num_inference_steps: 28,
+      guidance_scale: 3.5,
+      num_images: 1,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Flux 圖片生成失敗: ${response.status} - ${errorText}`);
+  }
+
+  let data = await response.json();
+  console.log(`[Flux] 初始響應:`, JSON.stringify(data).substring(0, 300));
+  
+  // 處理異步任務
+  if (data.request_id || data.status === "IN_QUEUE" || data.status === "IN_PROGRESS") {
+    const statusUrl = data.status_url || `${API_ENDPOINTS.vectorEngine}/fal-ai/flux/dev/requests/${data.request_id}/status`;
+    console.log(`[Flux] 任務排隊中，開始輪詢: ${statusUrl}`);
+    
+    for (let i = 0; i < 60; i++) {
+      await sleep(2000);
+      try {
+        const statusRes = await fetch(statusUrl, {
+          headers: { "Authorization": `Bearer ${apiKey}` }
+        });
+        if (statusRes.ok) {
+          data = await statusRes.json();
+          if (data.status === "COMPLETED" || data.status === "completed") {
+            break;
+          }
+          if (data.status === "FAILED" || data.status === "failed") {
+            throw new Error(`Flux 生成失敗: ${data.error || '未知錯誤'}`);
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Flux] 輪詢異常: ${e.message}`);
+      }
+    }
+  }
+  
+  // 解析圖片 URL
+  const imageUrl = 
+    data.images?.[0]?.url ||
+    data.images?.[0] ||
+    data.output?.images?.[0]?.url ||
+    data.output?.images?.[0] ||
+    data.result?.images?.[0]?.url ||
+    data.result?.images?.[0] ||
+    data.url ||
+    data.output?.url;
+  
+  if (!imageUrl) {
+    console.error(`[Flux] 無法解析圖片 URL:`, JSON.stringify(data));
+    throw new Error("Flux 未返回圖片 URL");
+  }
+  
+  console.log(`[Image] Flux 圖片生成成功: ${imageUrl}`);
+  return imageUrl;
+}
+
 // 生成場景圖片（支持固定人物模式和劇情模式）
 export async function generateSceneImage(
   prompt: string,
@@ -972,6 +1047,7 @@ ${visualStyle ? `6. 視覺風格：${visualStyle}` : ""}
 
 /**
  * 調用 Fal.ai nano-banana 生成圖片 (VectorEngine 代理)
+ * 支持多種 API 響應格式
  */
 export async function generateNanoBananaImage(
   prompt: string
@@ -989,43 +1065,81 @@ export async function generateNanoBananaImage(
     body: JSON.stringify({
       prompt: prompt,
       num_images: 1,
+      image_size: "landscape_16_9",
     }),
   });
 
+  // 檢查 HTTP 狀態
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[Nano-Banana] HTTP 錯誤 ${response.status}: ${errorText}`);
+    throw new Error(`Nano-Banana API 錯誤: ${response.status}`);
+  }
+
   let data = await response.json();
+  console.log(`[Nano-Banana] 初始響應:`, JSON.stringify(data).substring(0, 500));
   
   // 2. 如果是異步隊列，開始輪詢
-  if (data.status === "IN_QUEUE" || data.status === "IN_PROGRESS") {
-    const statusUrl = data.status_url;
+  if (data.status === "IN_QUEUE" || data.status === "IN_PROGRESS" || data.request_id) {
+    const statusUrl = data.status_url || `${API_ENDPOINTS.vectorEngine}/fal-ai/nano-banana/requests/${data.request_id}/status`;
     console.log(`[Nano-Banana] 任務排隊中，開始輪詢: ${statusUrl}`);
     
     let completed = false;
     let attempts = 0;
-    const maxAttempts = 30; // 最多輪詢 30 次 (約 60 秒)
+    const maxAttempts = 60; // 最多輪詢 60 次 (約 120 秒)
     
     while (!completed && attempts < maxAttempts) {
       await sleep(2000); // 每 2 秒輪詢一次
-      const statusRes = await fetch(statusUrl, {
-        headers: { "Authorization": `Bearer ${apiKey}` }
-      });
-      data = await statusRes.json();
-      
-      if (data.status === "COMPLETED") {
-        completed = true;
-      } else if (data.status === "FAILED") {
-        throw new Error("Nano-Banana 生成失敗");
+      try {
+        const statusRes = await fetch(statusUrl, {
+          headers: { "Authorization": `Bearer ${apiKey}` }
+        });
+        
+        if (!statusRes.ok) {
+          console.warn(`[Nano-Banana] 輪詢失敗 ${statusRes.status}，重試...`);
+          attempts++;
+          continue;
+        }
+        
+        data = await statusRes.json();
+        console.log(`[Nano-Banana] 輪詢 ${attempts + 1}: status=${data.status}`);
+        
+        if (data.status === "COMPLETED" || data.status === "completed") {
+          completed = true;
+        } else if (data.status === "FAILED" || data.status === "failed") {
+          throw new Error(`Nano-Banana 生成失敗: ${data.error || '未知錯誤'}`);
+        }
+      } catch (pollError: any) {
+        console.warn(`[Nano-Banana] 輪詢異常: ${pollError.message}`);
       }
       attempts++;
     }
+    
+    if (!completed) {
+      console.error(`[Nano-Banana] 輪詢超時，最終數據:`, JSON.stringify(data).substring(0, 500));
+    }
   }
 
-  // 3. 獲取最終 URL
-  const imageUrl = data.images?.[0]?.url || data.response_url || data.image_url;
+  // 3. 獲取最終 URL - 支持多種響應格式
+  const imageUrl = 
+    data.images?.[0]?.url ||
+    data.images?.[0] ||
+    data.output?.images?.[0]?.url ||
+    data.output?.images?.[0] ||
+    data.result?.images?.[0]?.url ||
+    data.result?.images?.[0] ||
+    data.response_url ||
+    data.image_url ||
+    data.url ||
+    data.output?.url ||
+    data.result?.url;
+    
   if (!imageUrl) {
+    console.error(`[Nano-Banana] 無法解析圖片 URL，完整響應:`, JSON.stringify(data));
     throw new Error("無法獲取 Nano-Banana 圖片 URL");
   }
 
-  console.log(`[Nano-Banana] 圖片生成成功: ${imageUrl}`);
+  console.log(`[Nano-Banana] ✅ 圖片生成成功: ${imageUrl}`);
   return imageUrl;
 }
 
@@ -1176,22 +1290,30 @@ export async function generateMultiImageSegment(
   const imageUrls: string[] = [];
   
   const imagePromises = imagePrompts.map(async (prompt, index) => {
-    try {
-      console.log(`[MultiImage] 生成圖片 ${index + 1}/3...`);
-      // 使用 Nano-Banana 或其他圖片生成服務
-      const imageUrl = await generateNanoBananaImage(prompt);
-      return { index, url: imageUrl };
-    } catch (error) {
-      console.error(`[MultiImage] 圖片 ${index + 1} 生成失敗:`, error);
-      // 失敗時嘗試使用 DALL-E 3 作為備用
+    console.log(`[MultiImage] 生成圖片 ${index + 1}/3...`);
+    
+    // 嘗試多種圖片生成服務
+    const generators = [
+      { name: 'Nano-Banana', fn: () => generateNanoBananaImage(prompt) },
+      { name: 'DALL-E 3', fn: () => generateImageWithDallE3(prompt) },
+      { name: 'Flux', fn: () => generateImageWithFlux(prompt) },
+    ];
+    
+    for (const generator of generators) {
       try {
-        const backupUrl = await generateImageWithDallE3(prompt);
-        return { index, url: backupUrl };
-      } catch (backupError) {
-        console.error(`[MultiImage] 圖片 ${index + 1} 備用生成也失敗:`, backupError);
-        return { index, url: null };
+        console.log(`[MultiImage] 圖片 ${index + 1} 嘗試使用 ${generator.name}...`);
+        const imageUrl = await generator.fn();
+        if (imageUrl) {
+          console.log(`[MultiImage] ✅ 圖片 ${index + 1} 使用 ${generator.name} 生成成功`);
+          return { index, url: imageUrl };
+        }
+      } catch (error: any) {
+        console.warn(`[MultiImage] 圖片 ${index + 1} ${generator.name} 失敗: ${error.message}`);
       }
     }
+    
+    console.error(`[MultiImage] 圖片 ${index + 1} 所有生成器都失敗`);
+    return { index, url: null };
   });
   
   const results = await Promise.all(imagePromises);
