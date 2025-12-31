@@ -1206,9 +1206,12 @@ export async function generateNanoBananaImage(
 export async function splitImagePromptForSegment(
   originalDescription: string,
   narrationText: string,
-  llmModel: string = "gpt-4o-mini"
+  llmModel: string = "gpt-4o-mini",
+  apiKey?: string // ✅ 新增參數：允許傳入批次的 API Key
 ): Promise<string[]> {
-  const apiKey = getNextApiKey();
+  // 如果沒有傳入 API Key，則使用默認的
+  const effectiveApiKey = apiKey || getNextApiKey();
+  console.log(`[ImageSplit] 使用 API Key: ${effectiveApiKey.substring(0, 15)}...`);
   
   const systemPrompt = `你是一個專業的視覺故事分鏡師。你的任務是將一個 8 秒的視頻場景描述拆分為 3 張靜態圖片的描述。
 
@@ -1254,7 +1257,7 @@ ${narrationText}
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${effectiveApiKey}`,
       },
       body: JSON.stringify({
         model: llmModel,
@@ -1278,19 +1281,28 @@ ${narrationText}
       throw new Error("LLM 返回內容為空");
     }
 
-    // 處理 LLM 可能返回的 markdown 格式
+    // ✅ 改進的 JSON 解析邏輯
     let jsonContent = content.trim();
-    if (jsonContent.startsWith('```json')) {
-      jsonContent = jsonContent.slice(7);
-    } else if (jsonContent.startsWith('```')) {
-      jsonContent = jsonContent.slice(3);
+    
+    // 移除 markdown 代碼塊標記
+    jsonContent = jsonContent.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
+    // 嘗試提取 JSON 對象
+    const jsonMatch = jsonContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonContent = jsonMatch[0];
     }
-    if (jsonContent.endsWith('```')) {
-      jsonContent = jsonContent.slice(0, -3);
-    }
+    
     jsonContent = jsonContent.trim();
+    console.log(`[ImageSplit] 解析 JSON: ${jsonContent.substring(0, 200)}...`);
     
     const result = JSON.parse(jsonContent);
+    
+    // ✅ 驗證結果格式
+    if (!result.image1 && !result.image_1 && !result.images) {
+      console.warn(`[ImageSplit] JSON 缺少必要欄位，使用原始描述`);
+      return [originalDescription, originalDescription, originalDescription];
+    }
     
     const imagePrompts = [
       result.image1 || result.image_1 || result.images?.[0] || originalDescription,
@@ -1321,29 +1333,41 @@ ${narrationText}
  * @param narrationText 對應的旁白文字
  * @param llmModel LLM 模型名稱
  * @param imageDurationSec 每張圖片的顯示時長（秒）- 用於最終合併
+ * @param apiKey 可選的 API Key，用於統一批次的 Key 管理
  * @returns 圖片 URL（不是視頻）
  */
 export async function generateMultiImageSegment(
   originalDescription: string,
   narrationText: string,
   llmModel: string = "gpt-4o-mini",
-  imageDurationSec: number = 2.67
+  imageDurationSec: number = 2.67,
+  apiKey?: string // ✅ 新增參數
 ): Promise<{ videoUrl: string; imageUrls: string[] }> {
-  console.log(`[MultiImage] 開始生成圖片片段（直接返回圖片 URL，不轉視頻）...`);
+  console.log(`[MultiImage] 開始生成圖片片段...`);
+  console.log(`[MultiImage] 輸入參數:`, {
+    originalDescription: originalDescription.substring(0, 100),
+    narrationText: narrationText.substring(0, 100),
+    llmModel,
+    imageDurationSec,
+    hasApiKey: !!apiKey
+  });
   
-  // 1. 拆分描述為 3 個圖片提示詞
+  // 1. 拆分描述為 3 個圖片提示詞（傳入 API Key）
   const imagePrompts = await splitImagePromptForSegment(
     originalDescription,
     narrationText,
-    llmModel
+    llmModel,
+    apiKey // ✅ 傳入 API Key
   );
   
-  // 2. 並行生成 3 張圖片
-  console.log(`[MultiImage] 開始並行生成 3 張圖片...`);
+  // 2. ✅ 改為順序生成，避免速率限制
+  console.log(`[MultiImage] 開始順序生成 3 張圖片（避免速率限制）...`);
   const imageUrls: string[] = [];
   
-  const imagePromises = imagePrompts.map(async (prompt, index) => {
+  for (let index = 0; index < imagePrompts.length; index++) {
+    const prompt = imagePrompts[index];
     console.log(`[MultiImage] 生成圖片 ${index + 1}/3...`);
+    console.log(`[MultiImage] Prompt: ${prompt.substring(0, 80)}...`);
     
     // 嘗試多種圖片生成服務
     const generators = [
@@ -1352,30 +1376,37 @@ export async function generateMultiImageSegment(
       { name: 'Flux', fn: () => generateImageWithFlux(prompt) },
     ];
     
+    let imageUrl: string | null = null;
+    
     for (const generator of generators) {
       try {
         console.log(`[MultiImage] 圖片 ${index + 1} 嘗試使用 ${generator.name}...`);
-        const imageUrl = await generator.fn();
+        imageUrl = await generator.fn();
         if (imageUrl) {
-          console.log(`[MultiImage] ✅ 圖片 ${index + 1} 使用 ${generator.name} 生成成功`);
-          return { index, url: imageUrl };
+          console.log(`[MultiImage] ✅ 圖片 ${index + 1} 使用 ${generator.name} 生成成功: ${imageUrl.substring(0, 80)}...`);
+          break;
         }
       } catch (error: any) {
-        console.warn(`[MultiImage] 圖片 ${index + 1} ${generator.name} 失敗: ${error.message}`);
+        // ✅ 改進的錯誤處理
+        console.error(`[MultiImage] 圖片 ${index + 1} ${generator.name} 失敗:`, {
+          message: error.message,
+          stack: error.stack?.substring(0, 300),
+          response: error.response?.data,
+          status: error.response?.status
+        });
       }
     }
     
-    console.error(`[MultiImage] 圖片 ${index + 1} 所有生成器都失敗`);
-    return { index, url: null };
-  });
-  
-  const results = await Promise.all(imagePromises);
-  
-  // 按順序整理結果
-  results.sort((a, b) => a.index - b.index);
-  for (const result of results) {
-    if (result.url) {
-      imageUrls.push(result.url);
+    if (imageUrl) {
+      imageUrls.push(imageUrl);
+    } else {
+      console.error(`[MultiImage] 圖片 ${index + 1} 所有生成器都失敗`);
+    }
+    
+    // ✅ 添加延遲避免速率限制（除了最後一張）
+    if (index < imagePrompts.length - 1) {
+      console.log(`[MultiImage] 等待 1 秒避免速率限制...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
   
@@ -1385,8 +1416,7 @@ export async function generateMultiImageSegment(
     throw new Error("所有圖片生成都失敗了");
   }
   
-  // 直接返回第一張圖片作為 videoUrl（實際上是圖片）
-  // 最終合併時會根據 URL 判斷是圖片還是視頻
+  // 直接返回第一張圖片作為 videoUrl
   const primaryImageUrl = imageUrls[0];
   
   console.log(`[MultiImage] 圖片片段生成完成，返回圖片 URL: ${primaryImageUrl.substring(0, 100)}...`);
