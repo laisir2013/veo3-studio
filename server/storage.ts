@@ -5,14 +5,12 @@ import { ENV } from './_core/env';
 
 type StorageConfig = { baseUrl: string; apiKey: string };
 
-function getStorageConfig(): StorageConfig {
+function getStorageConfig(): StorageConfig | null {
   const baseUrl = ENV.forgeApiUrl;
   const apiKey = ENV.forgeApiKey;
 
   if (!baseUrl || !apiKey) {
-    throw new Error(
-      "Storage proxy credentials missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY"
-    );
+    return null;
   }
 
   return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey };
@@ -72,8 +70,30 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
-  const { baseUrl, apiKey } = getStorageConfig();
+  const config = getStorageConfig();
   const key = normalizeKey(relKey);
+
+  // 如果沒有 Forge 配置，嘗試回退到 R2
+  if (!config) {
+    console.log(`[Storage] Forge credentials missing, falling back to R2 for key: ${key}`);
+    try {
+      const { isR2Configured, uploadToR2 } = await import('./r2Storage');
+      if (isR2Configured()) {
+        const buffer = typeof data === 'string' ? Buffer.from(data, 'utf-8') : Buffer.from(data as any);
+        const url = await uploadToR2({
+          data: buffer,
+          key,
+          contentType
+        });
+        return { key, url };
+      }
+    } catch (err) {
+      console.error(`[Storage] R2 fallback failed:`, err);
+    }
+    throw new Error("Storage proxy credentials missing and R2 fallback failed");
+  }
+
+  const { baseUrl, apiKey } = config;
   const uploadUrl = buildUploadUrl(baseUrl, key);
   const formData = toFormData(data, contentType, key.split("/").pop() ?? key);
   const response = await fetch(uploadUrl, {
