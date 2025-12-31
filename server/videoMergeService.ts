@@ -571,7 +571,10 @@ async function performActualMerge(
   resolution: string,
   narrationVolume: number,
   bgmVolume: number,
-  originalVolume: number
+  originalVolume: number,
+  progressStart?: number,
+  progressEnd?: number,
+  taskId?: string
 ): Promise<MergeResult> {
   mergeStats.localAttempts++;
   
