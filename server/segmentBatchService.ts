@@ -4,6 +4,7 @@
  */
 
 import { API_KEYS, getNextApiKey } from "./videoConfig";
+import { saveMemoryTask } from "./taskAdapter";
 
 // 每批次生成的片段數量
 export const BATCH_SIZE = 6;
@@ -451,6 +452,11 @@ export function createLongVideoTask(
   // ✅ 同步到 SQLite
   syncTaskToDb(task);
   
+  // 🔥 保存到 JSON 文件持久化存儲
+  saveMemoryTask(task).catch(err => {
+    console.error(`⚠️ [Persistence] 保存任務失敗: ${taskId}`, err.message);
+  });
+  
   return task;
 }
 
@@ -524,6 +530,11 @@ export function updateSegment(taskId: string, segmentId: number, updates: Partia
       
       // ✅ 同步到 SQLite
       syncTaskToDb(task);
+      
+      // 🔥 保存到 JSON 文件持久化存儲
+      saveMemoryTask(task).catch(err => {
+        console.error(`⚠️ [Persistence] 更新任務失敗: ${taskId}`, err.message);
+      });
     }
   }
 }

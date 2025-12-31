@@ -745,6 +745,51 @@ export const appRouter = router({
           message: "合併任務已啟動，請輪詢進度" 
         };
       }),
+
+    // ✅ 新增：健康檢查 API（驗證存儲系統）
+    healthCheck: publicProcedure.query(async () => {
+      const { healthCheck } = await import('./taskPersistence');
+      return await healthCheck();
+    }),
+
+    // ✅ 新增：獲取歷史任務列表
+    listHistory: publicProcedure
+      .input(z.object({
+        limit: z.number().default(50),
+        offset: z.number().default(0)
+      }))
+      .query(async ({ input }) => {
+        const { listTasks } = await import('./taskPersistence');
+        return await listTasks(input.limit, input.offset);
+      }),
+
+    // ✅ 新增：恢復歷史任務
+    restoreFromHistory: publicProcedure
+      .input(z.object({ taskId: z.string() }))
+      .query(async ({ input }) => {
+        const { loadMemoryTask } = await import('./taskAdapter');
+        const task = await loadMemoryTask(input.taskId);
+        if (!task) {
+          return { success: false, error: "任務不存在或已過期" };
+        }
+        // 將恢復的任務加載到內存
+        const { longVideoTasks } = await import('./segmentBatchService');
+        longVideoTasks.set(task.id, task);
+        return { success: true, task };
+      }),
+
+    // ✅ 新增：刪除歷史任務
+    deleteFromHistory: publicProcedure
+      .input(z.object({ taskId: z.string() }))
+      .mutation(async ({ input }) => {
+        const { deleteTask } = await import('./taskPersistence');
+        try {
+          await deleteTask(input.taskId);
+          return { success: true };
+        } catch (error: any) {
+          return { success: false, error: error.message };
+        }
+      }),
   }),
   // 配音員相關路由
   voice: router({
