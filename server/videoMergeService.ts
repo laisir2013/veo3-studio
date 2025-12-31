@@ -477,8 +477,10 @@ async function performActualMerge(
   const fs = await import("fs");
 
   // 檢查 FFmpeg
-  const ffmpegAvailable = await checkFFmpegAvailable();
-  if (!ffmpegAvailable) {
+  try {
+    await execAsync("ffmpeg -version");
+  } catch (e) {
+    console.error("[LocalFFmpeg] ❌ FFmpeg 不可用:", e);
     return { success: false, error: "FFmpeg 不可用" };
   }
 
