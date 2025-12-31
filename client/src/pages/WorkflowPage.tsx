@@ -644,12 +644,30 @@ export default function WorkflowPage() {
     { taskId: taskId! },
     { 
       enabled: !!taskId,
-      refetchInterval: taskId ? 3000 : false,
+      refetchInterval: (data) => {
+        // 如果任務不存在、已完成或失敗，停止輪詢
+        if (data?.status === 'not_found' || data?.status === 'completed' || data?.status === 'failed') {
+          return false;
+        }
+        return taskId ? 3000 : false;
+      },
     }
   );
 
   useEffect(() => {
     if (taskStatus) {
+      // ✅ 處理任務不存在的情況（服務重啟後數據丟失）
+      if (taskStatus.status === "not_found") {
+        setTaskId(null);
+        setIsProcessing(false);
+        setGenerationProgress(0);
+        toast.info("任務已過期", {
+          description: "服務器重啟後任務數據已清除，請重新生成",
+          duration: 5000,
+        });
+        return;
+      }
+
       if (taskStatus.segments) {
         setSegments(prev => prev.map((seg, i) => {
           const serverSeg = taskStatus.segments[i];
@@ -670,9 +688,11 @@ export default function WorkflowPage() {
         }));
       }
 
-      if (taskStatus.segments) {
+      if (taskStatus.segments && taskStatus.segments.length > 0) {
         const completed = taskStatus.segments.filter((s: any) => s.status === "completed").length;
         setGenerationProgress((completed / taskStatus.segments.length) * 100);
+      } else {
+        setGenerationProgress(0);
       }
 
       if (taskStatus.status === "completed") {
