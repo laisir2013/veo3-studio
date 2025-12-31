@@ -1832,7 +1832,6 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               try {
                 // 使用新的多圖片生成功能
                 const { generateMultiImageSegment } = await import("./videoService");
-                const { isImageUrl } = await import("./videoMergeService");
                 
                 const imageDurationPerImage = 8 / 3; // 每張圖片約 2.67 秒
                 const result = await generateMultiImageSegment(
@@ -1842,34 +1841,16 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                   imageDurationPerImage
                 );
                 
+                // 混合模式：直接使用圖片 URL，不需要轉換為視頻
+                // 最終合併時由 FFmpeg 處理圖片和視頻的混合
                 videoUrl = result.videoUrl;
-                console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 多圖片生成成功，共 ${result.imageUrls.length} 張圖片`);
-                
-                // 如果結果仍是圖片，嘗試轉換
-                if (isImageUrl(videoUrl)) {
-                  const { generateStillVideoFromImage } = await import("./videoMergeService");
-                  const convertedUrl = await generateStillVideoFromImage(videoUrl, 8);
-                  if (!isImageUrl(convertedUrl)) {
-                    videoUrl = convertedUrl;
-                  }
-                }
+                console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 圖片模式生成成功，共 ${result.imageUrls.length} 張圖片，直接使用圖片 URL`);
               } catch (multiImageError) {
                 console.error(`[LongVideo ${taskId}] 多圖片生成失敗，回退到單圖片模式:`, multiImageError);
                 
-                // 回退到原始的單圖片模式
-                const { generateStillVideoFromImage, isImageUrl } = await import("./videoMergeService");
-                const imageDurationSec = Number(task.imageDuration ?? 3);
-                
-                if (isImageUrl(imageUrl)) {
-                  const convertedVideoUrl = await generateStillVideoFromImage(imageUrl, imageDurationSec);
-                  if (convertedVideoUrl && !isImageUrl(convertedVideoUrl)) {
-                    videoUrl = convertedVideoUrl;
-                  } else {
-                    videoUrl = imageUrl;
-                  }
-                } else {
-                  videoUrl = imageUrl;
-                }
+                // 回退到原始的單圖片模式，直接使用圖片 URL
+                videoUrl = imageUrl;
+                console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 回退使用單圖片: ${imageUrl.substring(0, 80)}...`);
               }
             }
             

@@ -1262,13 +1262,16 @@ ${narrationText}
 }
 
 /**
- * 🖼️ 為圖片片段生成 3 張不同的圖片並合併為視頻
+ * 🖼️ 為圖片片段生成圖片
+ * 
+ * 混合模式下，圖片片段直接返回圖片 URL，不需要轉換為視頻
+ * 最終合併時由 FFmpeg 處理圖片和視頻的混合
  * 
  * @param originalDescription 原始視頻場景描述
  * @param narrationText 對應的旁白文字
  * @param llmModel LLM 模型名稱
- * @param imageDurationSec 每張圖片的顯示時長（秒）
- * @returns 合併後的視頻 URL
+ * @param imageDurationSec 每張圖片的顯示時長（秒）- 用於最終合併
+ * @returns 圖片 URL（不是視頻）
  */
 export async function generateMultiImageSegment(
   originalDescription: string,
@@ -1276,7 +1279,7 @@ export async function generateMultiImageSegment(
   llmModel: string = "gpt-4o-mini",
   imageDurationSec: number = 2.67
 ): Promise<{ videoUrl: string; imageUrls: string[] }> {
-  console.log(`[MultiImage] 開始生成多圖片片段...`);
+  console.log(`[MultiImage] 開始生成圖片片段（直接返回圖片 URL，不轉視頻）...`);
   
   // 1. 拆分描述為 3 個圖片提示詞
   const imagePrompts = await splitImagePromptForSegment(
@@ -1328,18 +1331,15 @@ export async function generateMultiImageSegment(
   
   console.log(`[MultiImage] 成功生成 ${imageUrls.length}/3 張圖片`);
   
-  // 3. 將圖片合併為視頻
   if (imageUrls.length === 0) {
     throw new Error("所有圖片生成都失敗了");
   }
   
-  // 導入視頻合併服務
-  const { generateMultiImageVideo } = await import("./videoMergeService");
+  // 直接返回第一張圖片作為 videoUrl（實際上是圖片）
+  // 最終合併時會根據 URL 判斷是圖片還是視頻
+  const primaryImageUrl = imageUrls[0];
   
-  // 傳遞圖片描述作為視頻生成的 prompt
-  const videoUrl = await generateMultiImageVideo(imageUrls, imageDurationSec, imagePrompts);
+  console.log(`[MultiImage] 圖片片段生成完成，返回圖片 URL: ${primaryImageUrl.substring(0, 100)}...`);
   
-  console.log(`[MultiImage] 多圖片片段生成完成: ${videoUrl}`);
-  
-  return { videoUrl, imageUrls };
+  return { videoUrl: primaryImageUrl, imageUrls };
 }

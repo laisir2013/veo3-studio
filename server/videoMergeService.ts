@@ -268,18 +268,46 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
 
   console.log(`[VideoMerge] ✅ 有效視頻數量: ${validVideoUrls.length}`);
 
-  // 檢測圖片格式
+  // 檢測圖片格式 - 混合模式支持圖片和視頻混合
   const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif", "bmp"];
-  const videoOnlyUrls = validVideoUrls.filter(url => {
+  const imageUrls: string[] = [];
+  const videoOnlyUrls: string[] = [];
+  
+  for (const url of validVideoUrls) {
     const ext = url.split("?")[0].split(".").pop()?.toLowerCase() || "";
-    return !imageExtensions.includes(ext);
-  });
+    if (imageExtensions.includes(ext)) {
+      imageUrls.push(url);
+    } else {
+      videoOnlyUrls.push(url);
+    }
+  }
+  
+  console.log(`[VideoMerge] 🖼️ 混合模式統計: ${imageUrls.length} 張圖片, ${videoOnlyUrls.length} 個視頻`);
 
-  if (videoOnlyUrls.length === 0) {
-    return { 
-      success: false, 
-      error: "所有輸入都是圖片格式，無法進行視頻合成。" 
-    };
+  // 如果所有輸入都是圖片，嘗試轉換為視頻
+  if (videoOnlyUrls.length === 0 && imageUrls.length > 0) {
+    console.log(`[VideoMerge] 所有輸入都是圖片，將圖片轉換為視頻片段...`);
+    // 嘗試將圖片轉換為視頻
+    for (const imgUrl of imageUrls) {
+      try {
+        const convertedUrl = await generateStillVideoFromImage(imgUrl, 8);
+        if (convertedUrl && !isImageUrl(convertedUrl)) {
+          videoOnlyUrls.push(convertedUrl);
+          console.log(`[VideoMerge] ✅ 圖片轉視頻成功: ${imgUrl.substring(0, 50)}...`);
+        } else {
+          console.warn(`[VideoMerge] ⚠️ 圖片轉視頻失敗，跳過: ${imgUrl.substring(0, 50)}...`);
+        }
+      } catch (error) {
+        console.error(`[VideoMerge] ❌ 圖片轉視頻異常:`, error);
+      }
+    }
+    
+    if (videoOnlyUrls.length === 0) {
+      return { 
+        success: false, 
+        error: "所有圖片轉換視頻失敗，無法進行合成。" 
+      };
+    }
   }
 
   // ✅ 修復：檢查是否有旁白音頻需要混入
@@ -287,15 +315,15 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
   const hasNarrations = narrations.some(n => n && n.trim().length > 0);
   
   // 如果只有一個視頻且不需要任何處理（無 BGM、無字幕、無旁白音頻），直接返回
-  if (validVideoUrls.length === 1 && bgmType === "none" && subtitleStyle === "none" && !hasValidAudio && !hasNarrations) {
+  if (videoOnlyUrls.length === 1 && bgmType === "none" && subtitleStyle === "none" && !hasValidAudio && !hasNarrations) {
     console.log(`[VideoMerge] 只有一個視頻且無需處理，直接返回`);
-    const result: MergeResult = { success: true, videoUrl: validVideoUrls[0], mode: "cloud", duration: 8 };
+    const result: MergeResult = { success: true, videoUrl: videoOnlyUrls[0], mode: "cloud", duration: 8 };
     assertMergeResponse(result);
     return result;
   }
   
   // ✅ 新增日誌：說明為什麼需要處理
-  if (validVideoUrls.length === 1) {
+  if (videoOnlyUrls.length === 1) {
     console.log(`[VideoMerge] 只有一個視頻，但需要處理:`, {
       hasValidAudio,
       hasNarrations,
@@ -304,10 +332,10 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
     });
   }
 
-  // 第一層：雲端合併
+  // 第一層：雲端合併（使用轉換後的 videoOnlyUrls）
   try {
     if (taskId) updateTaskProgress(taskId, 10);
-    const cloudResult = await tryCloudMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+    const cloudResult = await tryCloudMerge(videoOnlyUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
     if (cloudResult.success) {
       console.log(`[VideoMerge] ✅ 雲端合併成功`);
       const result: MergeResult = { ...cloudResult, mode: "cloud" };
@@ -319,10 +347,10 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
     console.log(`[VideoMerge] ⚠️ 雲端合併異常:`, error);
   }
 
-  // 第二層：本地 FFmpeg 合併（標準化後再合併）
+  // 第二層：本地 FFmpeg 合併（使用轉換後的 videoOnlyUrls）
   try {
     if (taskId) updateTaskProgress(taskId, 20);
-    const localResult = await tryLocalFFmpegMerge(validVideoUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
+    const localResult = await tryLocalFFmpegMerge(videoOnlyUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
       const result: MergeResult = { ...localResult, mode: "local" };
@@ -337,7 +365,7 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
   // 第三層：緊急模式
   console.log(`[VideoMerge] 🚨 啟動緊急模式`);
   mergeStats.emergencyActivations++;
-  const emergencyResult = emergencyMode(validVideoUrls, narrations);
+  const emergencyResult = emergencyMode(videoOnlyUrls, narrations);
   assertMergeResponse(emergencyResult);
   return emergencyResult;
 }
