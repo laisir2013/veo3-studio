@@ -70,6 +70,7 @@ export interface Segment {
   endTime: number;   // 片段結束時間（秒）
   prompt?: string;
   narrationSegmentIndex?: number;
+  mediaType?: "image" | "video"; // ✅ 新增：混合模式中的媒體類型
 }
 
 // 批次狀態

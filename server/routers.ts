@@ -649,7 +649,8 @@ export const appRouter = router({
             status: seg.status,
             videoUrl: seg.videoUrl,
             audioUrl: seg.audioUrl,
-            imageUrl: seg.imageUrl,
+            imageUrl: (seg as any).imageUrl,
+            mediaType: seg.mediaType, // ✅ 新增：返回媒體類型
           })),
         };
       }),
@@ -1935,6 +1936,7 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               audioUrl: audioUrl,
               narration: narrationText,
               prompt: sceneData?.description,
+              mediaType: isVideoSegment ? "video" : "image", // ✅ 新增：記錄媒體類型
             });
             
             // 🔍 步驟 6：保存後驗證

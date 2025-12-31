@@ -83,6 +83,7 @@ export interface SegmentData {
   imageUrl?: string;
   description?: string;
   voiceActorId?: string;
+  mediaType?: "image" | "video"; // 混合模式：圖片或視頻類型
 }
 
 interface SegmentListPreviewProps {
@@ -186,6 +187,11 @@ function SegmentGridOverview({
   // 計算批次數量
   const maxBatch = Math.max(...segments.map(s => s.batchIndex)) + 1;
 
+  // 計算圖片和視頻片段數量
+  const imageCount = segments.filter(s => s.mediaType === "image").length;
+  const videoCount = segments.filter(s => s.mediaType === "video").length;
+  const hasMediaTypes = imageCount > 0 || videoCount > 0;
+
   return (
     <div className="space-y-2">
       {/* 批次圖例 */}
@@ -199,6 +205,20 @@ function SegmentGridOverview({
             </div>
           );
         })}
+        {/* 混合模式圖例 */}
+        {hasMediaTypes && (
+          <>
+            <div className="w-px h-4 bg-zinc-700 mx-1" />
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center text-[8px] font-bold text-white">圖</div>
+              <span className="text-blue-400">圖片 ({imageCount})</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center text-[8px] font-bold text-white">片</div>
+              <span className="text-cyan-400">視頻 ({videoCount})</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 8 列網格 - 簡化版，只顯示片段編號 */}
@@ -213,13 +233,21 @@ function SegmentGridOverview({
                 <TooltipTrigger asChild>
                   <div
                     className={`
-                      rounded border cursor-pointer h-10 w-full
+                      rounded border cursor-pointer h-10 w-full relative
                       transition-all hover:scale-105 hover:shadow-lg flex items-center justify-center
                       ${segment.status === "failed" ? "border-red-500 bg-red-500/20" : `${batchColor.border} ${batchColor.bg}`}
                       ${segment.status === "generating" ? "animate-pulse" : ""}
                     `}
                     onClick={() => onSegmentClick?.(segment.id)}
                   >
+                    {/* 圖片/視頻類型標記 - 左上角 */}
+                    {segment.mediaType && (
+                      <div className={`absolute -top-1 -left-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold
+                        ${segment.mediaType === "image" ? "bg-blue-500 text-white" : "bg-cyan-500 text-white"}`}
+                      >
+                        {segment.mediaType === "image" ? "圖" : "片"}
+                      </div>
+                    )}
                     {/* 只顯示片段編號 */}
                     <span className={`text-base font-bold ${segment.status === "failed" ? "text-red-400" : batchColor.text}`}>
                       {segment.id}
@@ -243,6 +271,11 @@ function SegmentGridOverview({
                       {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
                     </div>
                     <div className="text-xs">第 {segment.batchIndex + 1} 批 · {statusConfig.label}</div>
+                    {segment.mediaType && (
+                      <div className={`text-xs font-medium ${segment.mediaType === "image" ? "text-blue-400" : "text-cyan-400"}`}>
+                        {segment.mediaType === "image" ? "🖼️ 圖片模式 (Nano Banana)" : "🎬 視頻模式 (VEO)"}
+                      </div>
+                    )}
                     {segment.status === "generating" && (
                       <div className="text-xs">進度: {segment.progress}%</div>
                     )}
