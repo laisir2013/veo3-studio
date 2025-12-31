@@ -1639,7 +1639,14 @@ Total: ${segmentCount} segments of 8 seconds each`;
                     title={seg.generatingStatus || `Segment #${seg.id}`}
                   >
                     {seg.status === "completed" ? (
-                      seg.videoUrl ? (
+                      // ✅ 圖片模式優先顯示圖片，視頻模式顯示視頻
+                      seg.mediaType === "image" ? (
+                        <img 
+                          src={seg.imageUrl || seg.videoUrl} 
+                          alt={`Segment ${seg.id}`} 
+                          className="w-full h-full object-cover rounded-lg" 
+                        />
+                      ) : seg.videoUrl ? (
                         <video src={seg.videoUrl} className="w-full h-full object-cover rounded-lg" muted />
                       ) : seg.imageUrl ? (
                         <img src={seg.imageUrl} alt={`Segment ${seg.id}`} className="w-full h-full object-cover rounded-lg" />
