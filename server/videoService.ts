@@ -1046,100 +1046,104 @@ ${visualStyle ? `6. 視覺風格：${visualStyle}` : ""}
 }
 
 /**
- * 調用 Fal.ai nano-banana 生成圖片 (VectorEngine 代理)
- * 支持多種 API 響應格式
+ * 調用 Gemini 3 Pro Image (Nano Banana 2) 生成圖片
+ * 使用 OpenAI 格式的 /v1/chat/completions 端點
+ * 
+ * API 文檔: https://api.vectorengine.ai
+ * 模型: gemini-3-pro-image-preview
  */
 export async function generateNanoBananaImage(
   prompt: string
 ): Promise<string> {
   const apiKey = getNextApiKey();
-  console.log(`[Nano-Banana] 開始生成圖片: ${prompt.substring(0, 50)}...`);
+  console.log(`[Nano-Banana-2] 開始生成圖片 (Gemini 3 Pro Image): ${prompt.substring(0, 50)}...`);
   
-  // 1. 發起生成請求
-  const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/fal-ai/nano-banana`, {
+  // 使用 OpenAI 格式的 chat completions API
+  const response = await fetchWithRetry(`${API_ENDPOINTS.vectorEngine}/v1/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      prompt: prompt,
-      num_images: 1,
-      image_size: "landscape_16_9",
+      model: "gemini-3-pro-image-preview",
+      messages: [
+        {
+          role: "user",
+          content: `Generate an image: ${prompt}. The image should be high quality, photorealistic, 16:9 aspect ratio, suitable for video production.`
+        }
+      ],
     }),
   });
 
   // 檢查 HTTP 狀態
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[Nano-Banana] HTTP 錯誤 ${response.status}: ${errorText}`);
-    throw new Error(`Nano-Banana API 錯誤: ${response.status}`);
+    console.error(`[Nano-Banana-2] HTTP 錯誤 ${response.status}: ${errorText}`);
+    throw new Error(`Nano-Banana-2 API 錯誤: ${response.status}`);
   }
 
-  let data = await response.json();
-  console.log(`[Nano-Banana] 初始響應:`, JSON.stringify(data).substring(0, 500));
+  const data = await response.json();
+  console.log(`[Nano-Banana-2] 響應:`, JSON.stringify(data).substring(0, 500));
   
-  // 2. 如果是異步隊列，開始輪詢
-  if (data.status === "IN_QUEUE" || data.status === "IN_PROGRESS" || data.request_id) {
-    const statusUrl = data.status_url || `${API_ENDPOINTS.vectorEngine}/fal-ai/nano-banana/requests/${data.request_id}/status`;
-    console.log(`[Nano-Banana] 任務排隊中，開始輪詢: ${statusUrl}`);
+  // 解析響應 - Gemini 圖片生成的響應格式
+  // 可能的格式:
+  // 1. data.choices[0].message.content 包含圖片 URL
+  // 2. data.choices[0].message.image_url
+  // 3. data.data[0].url (DALL-E 風格)
+  // 4. data.images[0].url
+  
+  let imageUrl: string | null = null;
+  
+  // 嘗試從 choices 中獲取
+  if (data.choices && data.choices[0]) {
+    const choice = data.choices[0];
     
-    let completed = false;
-    let attempts = 0;
-    const maxAttempts = 60; // 最多輪詢 60 次 (約 120 秒)
-    
-    while (!completed && attempts < maxAttempts) {
-      await sleep(2000); // 每 2 秒輪詢一次
-      try {
-        const statusRes = await fetch(statusUrl, {
-          headers: { "Authorization": `Bearer ${apiKey}` }
-        });
-        
-        if (!statusRes.ok) {
-          console.warn(`[Nano-Banana] 輪詢失敗 ${statusRes.status}，重試...`);
-          attempts++;
-          continue;
-        }
-        
-        data = await statusRes.json();
-        console.log(`[Nano-Banana] 輪詢 ${attempts + 1}: status=${data.status}`);
-        
-        if (data.status === "COMPLETED" || data.status === "completed") {
-          completed = true;
-        } else if (data.status === "FAILED" || data.status === "failed") {
-          throw new Error(`Nano-Banana 生成失敗: ${data.error || '未知錯誤'}`);
-        }
-      } catch (pollError: any) {
-        console.warn(`[Nano-Banana] 輪詢異常: ${pollError.message}`);
+    // 檢查 message.content 是否包含 URL
+    if (choice.message?.content) {
+      const content = choice.message.content;
+      // 如果 content 是 URL
+      if (typeof content === 'string' && content.startsWith('http')) {
+        imageUrl = content;
       }
-      attempts++;
+      // 如果 content 是包含 URL 的字符串，嘗試提取
+      else if (typeof content === 'string') {
+        const urlMatch = content.match(/https?:\/\/[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)/i);
+        if (urlMatch) {
+          imageUrl = urlMatch[0];
+        }
+      }
     }
     
-    if (!completed) {
-      console.error(`[Nano-Banana] 輪詢超時，最終數據:`, JSON.stringify(data).substring(0, 500));
+    // 檢查 image_url 字段
+    if (!imageUrl && choice.message?.image_url) {
+      imageUrl = choice.message.image_url;
+    }
+    
+    // 檢查 image 字段
+    if (!imageUrl && choice.message?.image) {
+      imageUrl = choice.message.image;
     }
   }
-
-  // 3. 獲取最終 URL - 支持多種響應格式
-  const imageUrl = 
-    data.images?.[0]?.url ||
-    data.images?.[0] ||
-    data.output?.images?.[0]?.url ||
-    data.output?.images?.[0] ||
-    data.result?.images?.[0]?.url ||
-    data.result?.images?.[0] ||
-    data.response_url ||
-    data.image_url ||
-    data.url ||
-    data.output?.url ||
-    data.result?.url;
+  
+  // 嘗試其他格式
+  if (!imageUrl) {
+    imageUrl = 
+      data.data?.[0]?.url ||
+      data.images?.[0]?.url ||
+      data.images?.[0] ||
+      data.output?.images?.[0]?.url ||
+      data.output?.images?.[0] ||
+      data.image_url ||
+      data.url;
+  }
     
   if (!imageUrl) {
-    console.error(`[Nano-Banana] 無法解析圖片 URL，完整響應:`, JSON.stringify(data));
-    throw new Error("無法獲取 Nano-Banana 圖片 URL");
+    console.error(`[Nano-Banana-2] 無法解析圖片 URL，完整響應:`, JSON.stringify(data));
+    throw new Error("無法獲取 Nano-Banana-2 圖片 URL");
   }
 
-  console.log(`[Nano-Banana] ✅ 圖片生成成功: ${imageUrl}`);
+  console.log(`[Nano-Banana-2] ✅ 圖片生成成功: ${imageUrl}`);
   return imageUrl;
 }
 
