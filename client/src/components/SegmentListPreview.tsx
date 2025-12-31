@@ -279,7 +279,7 @@ function SegmentGridOverview({
                     )}
                     {segment.status === "generating" && (
                       <>
-                        <div className="text-xs">進度: {segment.progress}%</div>
+                        <div className="text-xs">進度: {segment.progress || 0}%</div>
                         {segment.generatingStatus && (
                           <div className="text-xs text-yellow-400 mt-1 break-words">
                             {segment.generatingStatus}
@@ -486,7 +486,7 @@ function SegmentDetailRow({
               <StatusIcon className={`w-3 h-3 ${statusConfig.animate ? 'animate-spin' : ''}`} />
               <span>{statusConfig.label}</span>
               {segment.status === "generating" && (
-                <span className="ml-1 font-medium">({segment.progress}%)</span>
+                <span className="ml-1 font-medium">({segment.progress || 0}%)</span>
               )}
             </div>
           </div>
@@ -628,11 +628,11 @@ function SegmentDetailRow({
                   {segment.status === "generating" ? (
                     <div className="text-center">
                       <Loader2 className="w-10 h-10 animate-spin text-blue-400 mx-auto mb-2" />
-                      <span className="text-sm text-zinc-400">生成中 {segment.progress}%</span>
+                      <span className="text-sm text-zinc-400">生成中 {segment.progress || 0}%</span>
                       <div className="w-24 h-1.5 bg-zinc-700 rounded-full mt-2 mx-auto">
                         <div 
                           className="h-full bg-blue-500 rounded-full transition-all"
-                          style={{ width: `${segment.progress}%` }}
+                          style={{ width: `${segment.progress || 0}%` }}
                         />
                       </div>
                     </div>

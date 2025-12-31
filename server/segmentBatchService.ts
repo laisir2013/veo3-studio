@@ -64,6 +64,8 @@ export interface Segment {
   progress: number;
   videoUrl?: string;
   audioUrl?: string;
+  imageUrl?: string; // ✅ 新增：圖片 URL（混合模式）
+  imageUrls?: string[]; // ✅ 新增：多張圖片 URL（混合模式）
   narration?: string; // ✅ 新增：旁白文字
   error?: string;
   startTime: number; // 片段開始時間（秒）
