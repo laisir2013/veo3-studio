@@ -284,73 +284,66 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
   
   console.log(`[VideoMerge] 🖼️ 混合模式統計: ${imageUrls.length} 張圖片, ${videoOnlyUrls.length} 個視頻`);
 
-  // 如果所有輸入都是圖片，嘗試轉換為視頻
-  if (videoOnlyUrls.length === 0 && imageUrls.length > 0) {
-    console.log(`[VideoMerge] 所有輸入都是圖片，將圖片轉換為視頻片段...`);
-    // 嘗試將圖片轉換為視頻
-    for (const imgUrl of imageUrls) {
-      try {
-        const convertedUrl = await generateStillVideoFromImage(imgUrl, 8);
-        if (convertedUrl && !isImageUrl(convertedUrl)) {
-          videoOnlyUrls.push(convertedUrl);
-          console.log(`[VideoMerge] ✅ 圖片轉視頻成功: ${imgUrl.substring(0, 50)}...`);
-        } else {
-          console.warn(`[VideoMerge] ⚠️ 圖片轉視頻失敗，跳過: ${imgUrl.substring(0, 50)}...`);
-        }
-      } catch (error) {
-        console.error(`[VideoMerge] ❌ 圖片轉視頻異常:`, error);
-      }
-    }
-    
-    if (videoOnlyUrls.length === 0) {
-      return { 
-        success: false, 
-        error: "所有圖片轉換視頻失敗，無法進行合成。" 
-      };
-    }
+  // ✅ 混合模式：圖片將在本地 FFmpeg 合併時轉換為視頻
+  // 將圖片 URL 和視頻 URL 合併，保持原始順序
+  const allMediaUrls = validVideoUrls; // 直接使用原始 URL 列表（包含圖片和視頻）
+  
+  if (allMediaUrls.length === 0) {
+    return { 
+      success: false, 
+      error: "沒有有效的媒體文件可以合併。" 
+    };
   }
+  
+  console.log(`[VideoMerge] 🖼️ 混合模式: ${imageUrls.length} 張圖片 + ${videoOnlyUrls.length} 個視頻，將在本地 FFmpeg 處理`);
 
   // ✅ 修復：檢查是否有旁白音頻需要混入
   const hasValidAudio = audioUrls.some(url => url && url.startsWith("http"));
   const hasNarrations = narrations.some(n => n && n.trim().length > 0);
   
-  // 如果只有一個視頻且不需要任何處理（無 BGM、無字幕、無旁白音頻），直接返回
-  if (videoOnlyUrls.length === 1 && bgmType === "none" && subtitleStyle === "none" && !hasValidAudio && !hasNarrations) {
+  // 如果只有一個純視頻且不需要任何處理（無 BGM、無字幕、無旁白音頻），直接返回
+  if (allMediaUrls.length === 1 && imageUrls.length === 0 && bgmType === "none" && subtitleStyle === "none" && !hasValidAudio && !hasNarrations) {
     console.log(`[VideoMerge] 只有一個視頻且無需處理，直接返回`);
-    const result: MergeResult = { success: true, videoUrl: videoOnlyUrls[0], mode: "cloud", duration: 8 };
+    const result: MergeResult = { success: true, videoUrl: allMediaUrls[0], mode: "cloud", duration: 8 };
     assertMergeResponse(result);
     return result;
   }
   
   // ✅ 新增日誌：說明為什麼需要處理
-  if (videoOnlyUrls.length === 1) {
-    console.log(`[VideoMerge] 只有一個視頻，但需要處理:`, {
-      hasValidAudio,
-      hasNarrations,
-      bgmType,
-      subtitleStyle,
-    });
-  }
+  console.log(`[VideoMerge] 需要處理:`, {
+    totalSegments: allMediaUrls.length,
+    imageCount: imageUrls.length,
+    videoCount: videoOnlyUrls.length,
+    hasValidAudio,
+    hasNarrations,
+    bgmType,
+    subtitleStyle,
+  });
 
-  // 第一層：雲端合併（使用轉換後的 videoOnlyUrls）
-  try {
-    if (taskId) updateTaskProgress(taskId, 10);
-    const cloudResult = await tryCloudMerge(videoOnlyUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
-    if (cloudResult.success) {
-      console.log(`[VideoMerge] ✅ 雲端合併成功`);
-      const result: MergeResult = { ...cloudResult, mode: "cloud" };
-      assertMergeResponse(result);
-      return result;
+  // ✅ 混合模式：跳過雲端合併，直接使用本地 FFmpeg（因為雲端不支持圖片）
+  if (imageUrls.length > 0) {
+    console.log(`[VideoMerge] 🖼️ 混合模式：跳過雲端合併，直接使用本地 FFmpeg`);
+  } else {
+    // 第一層：雲端合併（僅當沒有圖片時）
+    try {
+      if (taskId) updateTaskProgress(taskId, 10);
+      const cloudResult = await tryCloudMerge(allMediaUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume);
+      if (cloudResult.success) {
+        console.log(`[VideoMerge] ✅ 雲端合併成功`);
+        const result: MergeResult = { ...cloudResult, mode: "cloud" };
+        assertMergeResponse(result);
+        return result;
+      }
+      console.log(`[VideoMerge] ⚠️ 雲端合併失敗: ${cloudResult.error}`);
+    } catch (error) {
+      console.log(`[VideoMerge] ⚠️ 雲端合併異常:`, error);
     }
-    console.log(`[VideoMerge] ⚠️ 雲端合併失敗: ${cloudResult.error}`);
-  } catch (error) {
-    console.log(`[VideoMerge] ⚠️ 雲端合併異常:`, error);
   }
 
-  // 第二層：本地 FFmpeg 合併（使用轉換後的 videoOnlyUrls）
+  // 第二層：本地 FFmpeg 合併（支持混合模式）
   try {
     if (taskId) updateTaskProgress(taskId, 20);
-    const localResult = await tryLocalFFmpegMerge(videoOnlyUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
+    const localResult = await tryLocalFFmpegMerge(allMediaUrls, audioUrls, narrations, bgmType, subtitleStyle, outputFormat, resolution, narrationVolume, bgmVolume, originalVolume, taskId);
     if (localResult.success) {
       console.log(`[VideoMerge] ✅ 本地 FFmpeg 合併成功`);
       const result: MergeResult = { ...localResult, mode: "local" };
@@ -365,7 +358,7 @@ export async function mergeVideos(options: MergeOptions, taskId?: string): Promi
   // 第三層：緊急模式
   console.log(`[VideoMerge] 🚨 啟動緊急模式`);
   mergeStats.emergencyActivations++;
-  const emergencyResult = emergencyMode(videoOnlyUrls, narrations);
+  const emergencyResult = emergencyMode(allMediaUrls, narrations);
   assertMergeResponse(emergencyResult);
   return emergencyResult;
 }
@@ -606,20 +599,26 @@ async function performActualMerge(
   }
 
   try {
-    // 步驟 1：下載所有視頻
-    console.log(`[LocalFFmpeg] 📥 下載 ${videoUrls.length} 個視頻片段...`);
+    // 步驟 1：下載所有視頻/圖片片段
+    console.log(`[LocalFFmpeg] 📥 下載 ${videoUrls.length} 個片段...`);
     const downloadedPaths: string[] = [];
     const downloadedAudioPaths: string[] = [];
+    const isImageSegment: boolean[] = []; // ✅ 新增：記錄哪些片段是圖片
 
     for (let i = 0; i < videoUrls.length; i++) {
-      const localPath = `${tempDir}/segment_${i}.mp4`;
-      console.log(`[LocalFFmpeg] 下載視頻 ${i + 1}/${videoUrls.length}...`);
+      const url = videoUrls[i];
+      const isImage = isImageUrl(url);
+      const ext = isImage ? url.split('?')[0].split('.').pop()?.toLowerCase() || 'jpg' : 'mp4';
+      const localPath = `${tempDir}/segment_${i}.${ext}`;
       
-      const downloaded = await downloadVideoWithValidation(videoUrls[i], localPath, tempDir);
+      console.log(`[LocalFFmpeg] 下載${isImage ? '圖片' : '視頻'} ${i + 1}/${videoUrls.length}...`);
+      
+      const downloaded = await downloadVideoWithValidation(url, localPath, tempDir);
       if (downloaded) {
         downloadedPaths.push(localPath);
+        isImageSegment.push(isImage);
       } else {
-        console.warn(`[LocalFFmpeg] ⚠️ 視頻 ${i + 1} 下載失敗，跳過`);
+        console.warn(`[LocalFFmpeg] ⚠️ 片段 ${i + 1} 下載失敗，跳過`);
       }
 
       // ✅ 下載對應的音頻
@@ -645,18 +644,51 @@ async function performActualMerge(
       return { success: false, error: "無法下載任何視頻文件" };
     }
 
-    console.log(`[LocalFFmpeg] ✅ 成功下載 ${downloadedPaths.length}/${videoUrls.length} 個視頻`);
+    console.log(`[LocalFFmpeg] ✅ 成功下載 ${downloadedPaths.length}/${videoUrls.length} 個片段`);
+
+    // ✅ 步驟 1.5：將圖片片段轉換為視頻
+    console.log(`[LocalFFmpeg] 🖼️ 檢查圖片片段並轉換為視頻...`);
+    const videoSegmentPaths: string[] = [];
+    
+    for (let i = 0; i < downloadedPaths.length; i++) {
+      const inputPath = downloadedPaths[i];
+      const audioPath = downloadedAudioPaths[i] || "";
+      
+      if (isImageSegment[i]) {
+        // 圖片片段：轉換為視頻
+        const videoPath = `${tempDir}/img_to_video_${i}.mp4`;
+        console.log(`[LocalFFmpeg] 🖼️ 片段 ${i + 1} 是圖片，轉換為視頻...`);
+        
+        const converted = await convertImageToVideoLocal(inputPath, audioPath, videoPath, 8);
+        if (converted) {
+          videoSegmentPaths.push(videoPath);
+          console.log(`[LocalFFmpeg] ✅ 圖片 ${i + 1} 轉換成功`);
+        } else {
+          console.warn(`[LocalFFmpeg] ⚠️ 圖片 ${i + 1} 轉換失敗，跳過`);
+        }
+      } else {
+        // 視頻片段：直接使用
+        videoSegmentPaths.push(inputPath);
+      }
+    }
+    
+    if (videoSegmentPaths.length === 0) {
+      return { success: false, error: "無法處理任何片段" };
+    }
+    
+    console.log(`[LocalFFmpeg] ✅ 有效視頻片段: ${videoSegmentPaths.length} 個`);
 
     // 步驟 2：標準化每個視頻片段
     console.log(`[LocalFFmpeg] 🔄 標準化視頻片段...`);
     const normalizedPaths: string[] = [];
 
-    for (let i = 0; i < downloadedPaths.length; i++) {
-      const inputPath = downloadedPaths[i];
+    for (let i = 0; i < videoSegmentPaths.length; i++) {
+      const inputPath = videoSegmentPaths[i];
       const normalizedPath = `${tempDir}/normalized_${i}.mp4`;
-      const audioPath = downloadedAudioPaths[i];
+      // ✅ 對於已轉換的圖片視頻，音頻已經合成，不需要再次混合
+      const audioPath = isImageSegment[i] ? "" : (downloadedAudioPaths[i] || "");
       
-      console.log(`[LocalFFmpeg] 標準化視頻 ${i + 1}/${downloadedPaths.length}...`);
+      console.log(`[LocalFFmpeg] 標準化視頻 ${i + 1}/${videoSegmentPaths.length}...`);
       
       // ✅ 傳遞旁白文字和字幕樣式以支持字幕燒錄
       const narrationText = narrations[i] || "";
@@ -1696,4 +1728,97 @@ export async function generateMultiImageVideo(
     console.error(`[MultiImageVideo] 轉換失敗:`, error);
     return imageUrls[0];
   }
+}
+
+
+/**
+ * 🖼️ 使用本地 FFmpeg 將圖片 + 音頻合成為視頻
+ * 用於混合模式中處理圖片片段
+ * 
+ * @param imagePath 本地圖片文件路徑
+ * @param audioPath 本地音頻文件路徑（可選）
+ * @param outputPath 輸出視頻文件路徑
+ * @param duration 視頻時長（秒），如果有音頻則使用音頻時長
+ * @returns 是否成功
+ */
+export async function convertImageToVideoLocal(
+  imagePath: string,
+  audioPath: string,
+  outputPath: string,
+  duration: number = 8
+): Promise<boolean> {
+  const { exec } = await import("child_process");
+  const { promisify } = await import("util");
+  const execAsync = promisify(exec);
+  const fs = await import("fs");
+  
+  console.log(`[ImageToVideo] 🖼️ 將圖片轉換為視頻...`);
+  console.log(`[ImageToVideo] 圖片: ${imagePath}`);
+  console.log(`[ImageToVideo] 音頻: ${audioPath || '無'}`);
+  
+  try {
+    let cmd: string;
+    const hasAudio = audioPath && fs.existsSync(audioPath);
+    
+    if (hasAudio) {
+      // 有音頻：使用音頻時長作為視頻時長
+      // 使用 loop 讓圖片循環，shortest 讓視頻在音頻結束時停止
+      cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", `"${imagePath}"`,
+        "-i", `"${audioPath}"`,
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-vf", "scale=1920:-2,fps=30",
+        "-shortest",
+        `"${outputPath}"`
+      ].join(" ");
+    } else {
+      // 無音頻：使用指定時長
+      cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-i", `"${imagePath}"`,
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-pix_fmt", "yuv420p",
+        "-vf", "scale=1920:-2,fps=30",
+        "-t", String(duration),
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-shortest",
+        `"${outputPath}"`
+      ].join(" ");
+    }
+    
+    console.log(`[ImageToVideo] 執行命令: ${cmd.substring(0, 200)}...`);
+    await execAsync(cmd, { timeout: 60000 });
+    
+    // 驗證輸出
+    if (fs.existsSync(outputPath)) {
+      const stats = fs.statSync(outputPath);
+      if (stats.size > 10000) {
+        console.log(`[ImageToVideo] ✅ 轉換成功，文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+        return true;
+      }
+    }
+    
+    console.warn(`[ImageToVideo] ⚠️ 輸出文件無效`);
+    return false;
+  } catch (error: any) {
+    console.error(`[ImageToVideo] ❌ 轉換失敗:`, error.message);
+    return false;
+  }
+}
+
+/**
+ * 🔍 檢測本地文件是否為圖片
+ */
+export function isLocalImageFile(filePath: string): boolean {
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+  const lowerPath = filePath.toLowerCase();
+  return imageExtensions.some(ext => lowerPath.endsWith(ext));
 }
