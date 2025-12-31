@@ -115,6 +115,10 @@ interface SegmentInfo {
   videoUrl?: string;
   audioUrl?: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  mediaType?: "image" | "video";
+  generatingStatus?: string;
+  progress?: number;
   status: "pending" | "generating" | "completed" | "failed";
   subtitles?: Array<{ start: number; end: number; text: string }>;
 }
@@ -656,6 +660,10 @@ export default function WorkflowPage() {
               videoUrl: serverSeg.videoUrl,
               audioUrl: serverSeg.audioUrl,
               imageUrl: serverSeg.imageUrl,
+              imageUrls: serverSeg.imageUrls,
+              mediaType: serverSeg.mediaType,
+              generatingStatus: serverSeg.generatingStatus,
+              progress: serverSeg.progress || 0,
             };
           }
           return seg;
@@ -1619,7 +1627,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 {segments.map((seg) => (
                   <div
                     key={seg.id}
-                    className={`aspect-video rounded-lg flex items-center justify-center ${
+                    className={`aspect-video rounded-lg flex flex-col items-center justify-center relative overflow-hidden ${
                       seg.status === "completed"
                         ? "bg-green-500/20 border-2 border-green-500"
                         : seg.status === "generating"
@@ -1628,19 +1636,39 @@ Total: ${segmentCount} segments of 8 seconds each`;
                         ? "bg-red-500/20 border-2 border-red-500"
                         : "bg-zinc-800/50 border border-zinc-700"
                     }`}
+                    title={seg.generatingStatus || `Segment #${seg.id}`}
                   >
                     {seg.status === "completed" ? (
                       seg.videoUrl ? (
                         <video src={seg.videoUrl} className="w-full h-full object-cover rounded-lg" muted />
+                      ) : seg.imageUrl ? (
+                        <img src={seg.imageUrl} alt={`Segment ${seg.id}`} className="w-full h-full object-cover rounded-lg" />
                       ) : (
                         <CheckCircle2 className="w-4 h-4 sm:w-6 sm:h-6 text-green-500" />
                       )
                     ) : seg.status === "generating" ? (
-                      <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 text-blue-500 animate-spin" />
+                      <div className="text-center p-1">
+                        <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 text-blue-500 animate-spin mx-auto" />
+                        {seg.progress > 0 && (
+                          <span className="text-[8px] sm:text-[10px] text-blue-400 mt-0.5 block">{seg.progress}%</span>
+                        )}
+                        {seg.generatingStatus && (
+                          <span className="text-[8px] text-yellow-400 mt-0.5 block truncate max-w-full px-1">
+                            {seg.generatingStatus.replace(/^[^a-zA-Z0-9]+/, '').substring(0, 15)}
+                          </span>
+                        )}
+                      </div>
                     ) : seg.status === "failed" ? (
                       <XCircle className="w-4 h-4 sm:w-6 sm:h-6 text-red-500" />
                     ) : (
                       <span className="text-[10px] sm:text-xs text-zinc-500">#{seg.id}</span>
+                    )}
+                    {seg.mediaType && (
+                      <div className={`absolute top-0.5 right-0.5 px-1 py-0.5 rounded text-[8px] font-bold ${
+                        seg.mediaType === "image" ? "bg-blue-500 text-white" : "bg-emerald-500 text-white"
+                      }`}>
+                        {seg.mediaType === "image" ? "IMG" : "VID"}
+                      </div>
                     )}
                   </div>
                 ))}
