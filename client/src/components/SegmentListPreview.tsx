@@ -210,12 +210,12 @@ function SegmentGridOverview({
           <>
             <div className="w-px h-4 bg-zinc-700 mx-1" />
             <div className="flex items-center gap-1.5">
-              <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center text-[8px] font-bold text-white">圖</div>
-              <span className="text-blue-400">圖片 ({imageCount})</span>
+              <div className="px-1.5 py-0.5 rounded bg-blue-500 text-[9px] font-bold text-white">圖片</div>
+              <span className="text-blue-400">({imageCount})</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center text-[8px] font-bold text-white">片</div>
-              <span className="text-cyan-400">視頻 ({videoCount})</span>
+              <div className="px-1.5 py-0.5 rounded bg-emerald-500 text-[9px] font-bold text-white">視頻</div>
+              <span className="text-emerald-400">({videoCount})</span>
             </div>
           </>
         )}
@@ -240,12 +240,12 @@ function SegmentGridOverview({
                     `}
                     onClick={() => onSegmentClick?.(segment.id)}
                   >
-                    {/* 圖片/視頻類型標記 - 左上角 */}
+                    {/* 圖片/視頻類型標記 - 頂部橫幅 */}
                     {segment.mediaType && (
-                      <div className={`absolute -top-1 -left-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold
-                        ${segment.mediaType === "image" ? "bg-blue-500 text-white" : "bg-cyan-500 text-white"}`}
+                      <div className={`absolute -top-2 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap
+                        ${segment.mediaType === "image" ? "bg-blue-500 text-white" : "bg-emerald-500 text-white"}`}
                       >
-                        {segment.mediaType === "image" ? "圖" : "片"}
+                        {segment.mediaType === "image" ? "圖片" : "視頻"}
                       </div>
                     )}
                     {/* 只顯示片段編號 */}
@@ -272,7 +272,7 @@ function SegmentGridOverview({
                     </div>
                     <div className="text-xs">第 {segment.batchIndex + 1} 批 · {statusConfig.label}</div>
                     {segment.mediaType && (
-                      <div className={`text-xs font-medium ${segment.mediaType === "image" ? "text-blue-400" : "text-cyan-400"}`}>
+                      <div className={`text-xs font-medium ${segment.mediaType === "image" ? "text-blue-400" : "text-emerald-400"}`}>
                         {segment.mediaType === "image" ? "🖼️ 圖片模式 (Nano Banana)" : "🎬 視頻模式 (VEO)"}
                       </div>
                     )}
