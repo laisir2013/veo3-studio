@@ -1009,7 +1009,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
     }
   };
 
-  // 導航函數 - 修復：允許返回到任何之前的步驟
+  // 導航函數
   const handleStepClick = (stepId: number) => {
     // 允許返回到當前步驟之前的任何步驟，或已完成的步驟
     if (stepId <= currentStep) {
@@ -2128,9 +2128,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       
                       // 重置所有狀態
                       setCurrentStep(1);
-                      setVideoTitle("");
+                      setTopic("");
                       setSelectedLanguage("cantonese");
-                      setSelectedVoiceActor("");
+                      setSelectedVoiceActor(null);
                       setStoryOutline("");
                       setSegments([]);
                       setVideoTitle("");
