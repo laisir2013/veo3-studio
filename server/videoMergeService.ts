@@ -131,12 +131,22 @@ async function processMerge(params: any, taskId: string) {
         const audioPath = path.join(tempDir, `audio_${realIndex}.mp3`);
         const outputPath = path.join(tempDir, `norm_${realIndex}.mp4`);
 
+        // 確保臨時目錄存在（修復並發問題）
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
         // 下載素材（帶重試機制）
         await downloadFileWithRetry(url, segmentPath, 3);
         if (batchAudios[index]) {
           await downloadFileWithRetry(batchAudios[index], audioPath, 3);
           // 新增：檢測並修復音頻時長
           await ensureAudioDuration(audioPath, 8);
+        }
+
+        // 確保目錄仍然存在後再執行標準化
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
         }
 
         // 標準化片段
@@ -286,8 +296,19 @@ async function mergeChunk(files: string[], outputPath: string) {
 async function downloadFileWithRetry(url: string, dest: string, maxRetries: number = 3) {
   let lastError: any;
   
+  // 確保目標目錄存在（修復並發問題）
+  const destDir = path.dirname(dest);
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      // 再次確保目錄存在（防止並發刪除）
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      
       // 使用 AbortController 實現超時控制
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -298,6 +319,11 @@ async function downloadFileWithRetry(url: string, dest: string, maxRetries: numb
         
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
+        
+        // 確保目錄仍然存在後再寫入
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
         fs.writeFileSync(dest, Buffer.from(arrayBuffer));
         return;
       } finally {
