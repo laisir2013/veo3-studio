@@ -14,18 +14,184 @@ export interface GenerateSegmentsParams {
 
 export interface GenerateSegmentsResult {
   segments: GeneratedSegment[];
+  fullNarration: string;  // 新增：完整旁白
   apiProvider?: string;
   apiProviderName?: string;
 }
 
-// ✅ 新增：強制截斷旁白的輔助函數（導出供其他模組使用）
+// 輔助函數：計算字數
+function countWords(text: string, language: string): number {
+  if (language === 'english') {
+    return text.split(/\s+/).filter(w => w.length > 0).length;
+  } else {
+    // 中文按字數計算（排除標點符號）
+    return text.replace(/[，。！？、；：「」『』（）\s\n]/g, '').length;
+  }
+}
+
+export async function generateSegments(params: GenerateSegmentsParams): Promise<GenerateSegmentsResult> {
+  const { title, outline, language, segmentCount } = params;
+
+  // 語言風格設定
+  const languageStyle = {
+    cantonese: {
+      name: '粵語',
+      wordsPerSegment: '20-25個粵語字',
+      totalWords: `${segmentCount * 22}個字左右`,
+      style: `使用地道粵語口語，包含「係」「唔」「嘅」「咗」「啲」「嚟」「嗰」等粵語詞彙。語氣要像香港 YouTuber 講解咁自然。`,
+      example: '今日我哋嚟傾下呢個話題，點解有啲人賺錢咁輕鬆呢？',
+    },
+    mandarin: {
+      name: '普通話',
+      wordsPerSegment: '20-25個中文字',
+      totalWords: `${segmentCount * 22}個字左右`,
+      style: `使用標準普通話，語氣像央視主持人或知識類 UP 主。`,
+      example: '今天我們來聊聊這個話題，為什麼有些人賺錢看起來那麼輕鬆呢？',
+    },
+    english: {
+      name: 'English',
+      wordsPerSegment: '20-25 words',
+      totalWords: `about ${segmentCount * 22} words`,
+      style: `Natural, conversational English like a professional YouTuber or TED speaker.`,
+      example: 'Today, let\'s explore a fascinating topic - why do some people seem to make money so effortlessly?',
+    },
+    clone: {
+      name: '繁體中文',
+      wordsPerSegment: '20-25個中文字',
+      totalWords: `${segmentCount * 22}個字左右`,
+      style: `自然流暢的繁體中文表達，專業講解員風格。`,
+      example: '今天我們來聊聊這個話題，為什麼有些人賺錢看起來那麼輕鬆呢？',
+    },
+  };
+
+  const langConfig = languageStyle[language];
+
+  const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，生成：
+
+1. **${segmentCount} 個場景描述**（description）：每個片段的視覺畫面，用於 AI 生成視頻
+2. **一段完整連貫的旁白**（fullNarration）：整個視頻的旁白，約 ${langConfig.totalWords}
+
+【語言風格】
+${langConfig.style}
+
+【重要規則】
+
+📝 **旁白生成規則**：
+- 生成一段完整、連貫、流暢的旁白
+- 總字數約 ${langConfig.totalWords}
+- 旁白內容要按照場景描述的順序來寫
+- 每 ${langConfig.wordsPerSegment}（約 8 秒）的內容要對應一個場景
+- 不需要在旁白中標記片段編號，保持自然流暢
+
+📹 **場景描述規則**：
+- 每個場景描述要具體、視覺化
+- 包含：主體、動作、環境、光線、鏡頭角度
+- 使用英文撰寫（AI 視頻生成效果更好）
+
+【示例】
+假設有 3 個片段：
+- 片段1場景：年輕人看帳單發愁
+- 片段2場景：翻開一本書
+- 片段3場景：兩個人對比
+
+對應的完整旁白（約 60-75 字）：
+「${langConfig.example}其實答案就在這本書裡面。這本書講述了兩種完全不同的金錢觀念，一種讓你越來越窮，另一種讓你越來越富。」
+
+注意：旁白是一段連貫的文字，但內容順序要對應場景順序。`;
+
+  const userPrompt = `視頻主題：${title}
+
+故事大綱：
+${outline}
+
+請為這個視頻生成 ${segmentCount} 個片段的內容。
+
+⚠️ 重要：
+1. 場景描述用英文
+2. 旁白用${langConfig.name}，總共約 ${langConfig.totalWords}
+3. 旁白要連貫流暢，但內容順序要對應場景順序
+4. 每 ${langConfig.wordsPerSegment} 的旁白內容對應一個場景
+
+請以 JSON 格式返回：
+{
+  "segments": [
+    {
+      "description": "英文場景描述...",
+      "narration": "這個片段對應的旁白片段（約 ${langConfig.wordsPerSegment}）..."
+    }
+  ],
+  "fullNarration": "完整的連貫旁白（約 ${langConfig.totalWords}）..."
+}`;
+
+  try {
+    console.log(`[generateSegments] 開始生成 ${segmentCount} 個片段，語言: ${language}`);
+    
+    const result = await invokeLLM({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      responseFormat: { type: "json_object" },
+    });
+
+    const content = result.choices[0]?.message?.content;
+    if (!content || typeof content !== "string") {
+      throw new Error("LLM 返回內容為空");
+    }
+
+    // 解析 JSON 響應
+    const parsed = JSON.parse(content);
+    
+    if (!parsed.segments || !Array.isArray(parsed.segments)) {
+      throw new Error("LLM 返回格式錯誤：缺少 segments 數組");
+    }
+
+    // 處理片段數據
+    const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => {
+      return {
+        description: seg.description || `Scene ${index + 1} description`,
+        narration: seg.narration || '',
+      };
+    });
+
+    // 確保返回正確數量的片段
+    while (segments.length < segmentCount) {
+      segments.push({
+        description: `Continue the previous scene with more details`,
+        narration: '',
+      });
+    }
+
+    // 獲取完整旁白
+    let fullNarration = parsed.fullNarration || '';
+    
+    // 如果沒有 fullNarration，則從各片段的 narration 組合
+    if (!fullNarration) {
+      fullNarration = segments.map(s => s.narration).filter(n => n).join('');
+    }
+
+    const totalWords = countWords(fullNarration, language);
+    console.log(`[generateSegments] ✅ 生成完成，完整旁白字數: ${totalWords}`);
+    console.log(`[generateSegments] 完整旁白預覽: ${fullNarration.substring(0, 100)}...`);
+
+    return {
+      segments: segments.slice(0, segmentCount),
+      fullNarration,
+      apiProvider: result.apiProvider,
+      apiProviderName: result.apiProviderName,
+    };
+  } catch (error) {
+    console.error("生成片段內容失敗:", error);
+    throw error;
+  }
+}
+
+// 保留舊的 truncateNarration 函數以保持向後兼容
 export function truncateNarration(narration: string, language: string, maxLength: number = 26): string {
   if (language === 'english') {
-    // 英文按單詞數截斷
     const words = narration.split(/\s+/);
     if (words.length <= maxLength) return narration;
     
-    // 嘗試在標點符號處截斷
     let truncatedWords = words.slice(0, maxLength);
     let lastPunctIndex = -1;
     for (let i = truncatedWords.length - 1; i >= Math.floor(maxLength * 0.6); i--) {
@@ -45,11 +211,9 @@ export function truncateNarration(narration: string, language: string, maxLength
     }
     return truncated;
   } else {
-    // 中文按字數截斷
     const pureText = narration.replace(/[，。！？、；：「」『』（）\s]/g, '');
     if (pureText.length <= maxLength) return narration;
     
-    // 嘗試在標點符號處截斷
     let charCount = 0;
     let lastPunctIndex = -1;
     let truncateIndex = 0;
@@ -75,229 +239,5 @@ export function truncateNarration(narration: string, language: string, maxLength
       truncated = truncated.replace(/[，、；：]$/, '') + '。';
     }
     return truncated;
-  }
-}
-
-export async function generateSegments(params: GenerateSegmentsParams): Promise<GenerateSegmentsResult> {
-  const { title, outline, language, segmentCount } = params;
-
-  // ✅ 修復：強化語言風格差異
-  const languagePrompt = {
-    cantonese: `請使用地道粵語口語撰寫旁白：
-
-【必須使用的粵語詞彙】
-係、唔、嘅、咗、啲、嚟、嗰、點解、咩、邊度、好似、唔該、冇、嘢、我哋、佢哋
-
-【語氣】要像香港 YouTuber 講解咁自然
-
-【示例】
-✅ 正確：「今日我哋嚟傾下呢個話題」
-❌ 錯誤：「今天我們來討論這個話題」
-
-✅ 正確：「呢樣嘢真係好正」
-❌ 錯誤：「這個東西真的很好」
-
-✅ 正確：「點解會咁嘅呢？」
-❌ 錯誤：「為什麼會這樣呢？」`,
-
-    mandarin: `請使用標準普通話撰寫旁白：
-
-【語言風格】規範的普通話表達，避免方言詞彙
-
-【語氣】像央視主持人或知識類 UP 主
-
-【示例】
-✅ 正確：「今天我們來聊聊這個話題」
-❌ 錯誤：「今日我哋嚟傾下呢個話題」
-
-✅ 正確：「這個東西真的很棒」
-❌ 錯誤：「呢樣嘢真係好正」
-
-✅ 正確：「為什麼會這樣呢？」
-❌ 錯誤：「點解會咁嘅呢？」`,
-
-    english: `Please write in natural, conversational English:
-
-【Style】Professional YouTuber or TED speaker
-
-【Transitions】"Now, let's talk about...", "Here's the thing...", "But wait..."
-
-【Example】
-✅ Good: "Today, we're diving into this fascinating topic"
-❌ Bad: "We will discuss this topic"`,
-
-    clone: `請使用繁體中文撰寫旁白（語音克隆模式）：
-
-【語言風格】自然流暢的繁體中文表達
-
-【語氣】專業講解員或知識類主播`,
-  };
-
-  // ✅ 修復：根據語言類型設定不同的字數要求
-  // 粵語口語語速較慢，音節較長，需要較少字數
-  // 普通話語速較快，需要更多字數才能填滿 8 秒
-  const narrationConfig = {
-    cantonese: { min: 15, max: 22, desc: '15-22個粵語字（口語語速較慢）' },
-    mandarin: { min: 25, max: 35, desc: '25-35個普通話字（語速較快）' },
-    english: { min: 20, max: 30, desc: '20-30個英文單詞' },
-    clone: { min: 20, max: 30, desc: '20-30個中文字' },
-  };
-  const config = narrationConfig[language];
-  const maxNarrationLength = config.max;
-  const minNarrationLength = config.min;
-  const narrationLength = config.desc;
-
-  const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
-1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
-2. 旁白文字（narration）：這個片段的旁白內容，需要 ${narrationLength}
-
-${languagePrompt[language]}
-
-⚠️⚠️⚠️ 重要規則 ⚠️⚠️⚠️
-
-【旁白字數要求 - 極其重要】
-- 每個片段的旁白需要 ${narrationLength}
-- ⚠️ 最少 ${minNarrationLength} 個字/單詞！太短會導致語音只有 2 秒！
-- ⚠️ 最多 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
-- 語速自然，充滿活力，像 TikTok/Reels 的短視頻解說
-- 內容要足夠豐富，確保能填滿 8 秒的語音時長
-
-【旁白風格要求】
-${language === 'cantonese' ? 
-`粵語示例（18字，約 8 秒）：「今日我哋嘆傾下呢個話題，點解有人賺錢咳輕鬆呢？」✅
-錯誤示例（5字，太短）：「今日傾下錢」❌ 太短了，只有 2 秒！
-錯誤示例（30字，太長）：「今日我哋嘆傾下一個好有趣嘊話題，就係點解有啲人可以輕鬆賺錢呢？」❌ 太長了！` 
-: language === 'mandarin' ? 
-`普通話示例（30字，約 8 秒）：「今天我們來聊一個很有意思的話題，為什麼有些人賺錢看起來那麼輕鬆呢？」✅
-錯誤示例（10字，太短）：「今天聊賺錢」❌ 太短了，只有 2 秒！
-錯誤示例（50字，太長）：「今天我們來聊一個非常有趣的話題，就是為什麼有些人能輕鬆賺錢，而有些人却很辛苦呢？」❌ 太長了！`
-: `English Example (25 words, ~8 sec): "Today, let's explore a fascinating topic - why do some people seem to make money so effortlessly while others struggle?" ✅
-Wrong Example (8 words, too short): "Today, let's talk about money." ❌ Too short, only 2 seconds!
-Wrong Example (40 words, too long): "Today, we're going to dive deep into a really fascinating question..." ❌ Too long!`}
-
-【場景描述要求】
-- 要具體、視覺化，便於 AI 理解並生成畫面
-- 描述要包含：主體、動作、環境、光線、鏡頭角度
-- 例如：「一位年輕的女性坐在現代化的辦公室裡，面帶微笑地看著電腦屏幕，陽光從落地窗灑進來，鏡頭從側面拍攝」
-
-【連貫性要求】
-- 旁白要連貫，每個片段之間要有邏輯銜接
-- 使用過渡詞：「首先」「接下來」「那麼」「所以」「但是」「因此」
-- 不要在旁白中包含「第X段」「片段X」等編號信息
-
-【格式要求】
-- 不要包含任何標點符號以外的特殊字符
-- 旁白要自然流暢，適合朗讀
-
-⚠️ 最後檢查清單：
-✅ 每個片段的旁白是否達到 ${narrationLength}？絕對不能超過 ${maxNarrationLength}！
-✅ 粵語是否使用了「係」「唔」「嘅」「咦」「啲」等詞彙？
-✅ 普通話是否使用了標準書面語？
-✅ 英文是否自然流暢？
-✅ 旁白是否簡潔有力，而不是太長？`;
-
-  const userPrompt = `視頻主題：${title}
-
-故事大綱：
-${outline}
-
-請為這個視頻生成 ${segmentCount} 個片段的內容。每個片段8秒。
-
-⚠️ 記住：每個片段的旁白需要 ${narrationLength}，絕對不能超過 ${maxNarrationLength} 個字/單詞！語速自然偏快！
-
-請以 JSON 格式返回，格式如下：
-{
-  "segments": [
-    {
-      "description": "場景描述（詳細的視覺畫面描述）...",
-      "narration": "旁白文字（${narrationLength}）..."
-    }
-  ]
-}`;
-
-  try {
-    const result = await invokeLLM({
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      responseFormat: { type: "json_object" },
-    });
-
-    const content = result.choices[0]?.message?.content;
-    if (!content || typeof content !== "string") {
-      throw new Error("LLM 返回內容為空");
-    }
-
-    // 解析 JSON 響應
-    const parsed = JSON.parse(content);
-    
-    if (!parsed.segments || !Array.isArray(parsed.segments)) {
-      throw new Error("LLM 返回格式錯誤：缺少 segments 數組");
-    }
-
-    // 驗證並清理數據，✅ 新增：強制截斷過長的旁白 + 檢查太短的旁白
-    const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => {
-      let narration = seg.narration || `片段 ${index + 1} 的旁白內容`;
-      
-      // 計算原始旁白字數
-      const countWords = (text: string) => language === 'english' 
-        ? text.split(/\s+/).length 
-        : text.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
-      
-      const originalWordCount = countWords(narration);
-      
-      // ✅ 強制截斷過長的旁白
-      if (originalWordCount > maxNarrationLength) {
-        console.log(`[generateSegments] ⚠️ 片段 ${index + 1} 旁白過長 (${originalWordCount} ${language === 'english' ? 'words' : '字'})，正在截斷...`);
-        narration = truncateNarration(narration, language, maxNarrationLength);
-      }
-      
-      // ✅ 新增：檢查旁白是否太短，如果太短則警告並嘗試補充
-      const currentWordCount = countWords(narration);
-      if (currentWordCount < minNarrationLength) {
-        console.warn(`[generateSegments] ⚠️ 片段 ${index + 1} 旁白太短 (${currentWordCount} ${language === 'english' ? 'words' : '字'})，最少需要 ${minNarrationLength}`);
-        // 根據語言補充默認內容
-        const fillers = {
-          cantonese: '，啲個內容真係幾有趣，我哋繼續嘆下去',
-          mandarin: '，這個內容真的很有意思，讓我們繼續探討一下',
-          english: ', this is really fascinating, let us explore further',
-          clone: '，這個內容真的很有意思，讓我們繼續探討',
-        };
-        narration = narration + (fillers[language] || fillers.mandarin);
-        console.log(`[generateSegments] ✅ 已補充旁白，新字數: ${countWords(narration)}`);
-      }
-      
-      // 記錄最終旁白字數
-      const finalWordCount = countWords(narration);
-      console.log(`[generateSegments] 片段 ${index + 1} 最終旁白字數: ${finalWordCount} ${language === 'english' ? 'words' : '字'}`);
-      
-      return {
-        description: seg.description || `片段 ${index + 1} 的場景描述`,
-        narration: narration,
-      };
-    });
-
-    // 確保返回正確數量的片段
-    while (segments.length < segmentCount) {
-      const lastIndex = segments.length;
-      segments.push({
-        description: `延續上一個場景，展示更多細節`,
-        narration: language === 'cantonese' 
-          ? `繼續呢個故事，深入了解下。`
-          : language === 'mandarin'
-          ? `繼續這個故事，深入了解。`
-          : `Let's continue exploring.`,
-      });
-    }
-
-    return {
-      segments: segments.slice(0, segmentCount),
-      apiProvider: result.apiProvider,
-      apiProviderName: result.apiProviderName,
-    };
-  } catch (error) {
-    console.error("生成片段內容失敗:", error);
-    throw error;
   }
 }

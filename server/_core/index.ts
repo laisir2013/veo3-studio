@@ -123,6 +123,7 @@ async function startServer() {
       res.json({ 
         success: true, 
         segments: result.segments,
+        fullNarration: result.fullNarration,
         apiProvider: result.apiProvider,
         apiProviderName: result.apiProviderName,
       });

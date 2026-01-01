@@ -166,6 +166,7 @@ export default function WorkflowPage() {
   // 步驟5-6：片段描述和旁白
   const [segments, setSegments] = useState<SegmentInfo[]>([]);
   const [isGeneratingSegments, setIsGeneratingSegments] = useState(false);
+  const [fullNarration, setFullNarration] = useState<string>("");  // 完整旁白
 
   // 步驟7：編輯狀態
   const [editingSegmentId, setEditingSegmentId] = useState<number | null>(null);
@@ -509,6 +510,12 @@ export default function WorkflowPage() {
           narration: seg.narration || "",
           status: "pending" as const,
         })));
+        
+        // 保存完整旁白
+        if (data.fullNarration) {
+          setFullNarration(data.fullNarration);
+          console.log('[WorkflowPage] 完整旁白已保存:', data.fullNarration.substring(0, 100) + '...');
+        }
         
         // 顯示 API 來源信息
         if (data.apiProvider) {
@@ -1523,6 +1530,24 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   </div>
                 </div>
               </div>
+
+              {/* 完整旁白顯示 */}
+              {fullNarration && (
+                <div className="p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg border border-purple-500/30">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Mic className="w-4 h-4 text-purple-400" />
+                    <h4 className="font-medium">完整旁白</h4>
+                    <Badge variant="secondary" className="text-xs">
+                      {fullNarration.length} 字
+                    </Badge>
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                      {fullNarration}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* 混合內容比例選擇 */}
               <div className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30 space-y-4">
