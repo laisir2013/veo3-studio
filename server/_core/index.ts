@@ -7,6 +7,8 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { updateLongVideoTask } from "../segmentBatchService";
+import fs from "fs";
+import path from "path";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -27,7 +29,31 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+async function cleanupTempFiles() {
+  const tempDir = "/tmp";
+  try {
+    const files = fs.readdirSync(tempDir);
+    const targetFolders = files.filter(f => f.startsWith("veo3-merge-"));
+    
+    console.log(`[Startup Cleanup] 發現 ${targetFolders.length} 個殘留臨時目錄`);
+    
+    for (const folder of targetFolders) {
+      const fullPath = path.join(tempDir, folder);
+      try {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        console.log(`[Startup Cleanup] 已清理: ${folder}`);
+      } catch (err) {
+        console.error(`[Startup Cleanup] 清理失敗 ${folder}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error("[Startup Cleanup] 讀取臨時目錄失敗:", error);
+  }
+}
+
 async function startServer() {
+  // 啟動時執行清理
+  await cleanupTempFiles();
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

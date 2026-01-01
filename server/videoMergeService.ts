@@ -758,16 +758,6 @@ async function performActualMerge(
     if (taskId) mockUpdateTaskProgress(taskId, 95);
     const videoUrl = await uploadMergedVideo(outputPath);
     
-    // 清理臨時目錄
-    try {
-      console.log(`[LocalFFmpeg] 🗑️ 清理臨時目錄`);
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      }
-    } catch (e) {
-      console.warn(`[LocalFFmpeg] ⚠️ 清理臨時目錄失敗:`, e);
-    }
-
     if (videoUrl) {
       const isMergedUrl = videoUrl.includes('merged');
       console.log(`[LocalFFmpeg] 🔍 URL 驗證: ${isMergedUrl ? '✅ 包含 merged' : '❌ 不包含 merged'}`);
@@ -779,11 +769,20 @@ async function performActualMerge(
     }
   } catch (error: any) {
     console.error(`[LocalFFmpeg] ❌ 合併異常:`, error.message);
-    // 嘗試清理
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch (e) {}
     return { success: false, error: error.message };
+  } finally {
+    // 強化清理邏輯：無論成功或失敗，絕對清理臨時目錄
+    try {
+      if (fs.existsSync(tempDir)) {
+        const stats = fs.statSync(tempDir);
+        if (stats.isDirectory()) {
+          console.log(`[LocalFFmpeg] 🗑️ [Finally] 強制清理臨時目錄: ${tempDir}`);
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      }
+    } catch (e) {
+      console.warn(`[LocalFFmpeg] ⚠️ [Finally] 清理臨時目錄失敗:`, e);
+    }
   }
 }
 
