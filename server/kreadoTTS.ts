@@ -295,12 +295,27 @@ export async function generateSpeechWithKreado(
   }
   
   console.log(`[KreadoAI TTS] 生成語音: language=${language}, voiceId=${voiceId}, voiceSource=${voiceSource}`);
-  console.log(`[KreadoAI TTS] 文字內容完整: "${content}"`);
-  console.log(`[KreadoAI TTS] 文字長度: ${content.length} 字符`);
+  
+  // ✅ 文字清理：處理換行、特殊字符等
+  const originalContent = content;
+  const cleanedContent = content
+    .replace(/\r\n/g, '，')     // Windows 換行 → 逗號
+    .replace(/\n/g, '，')       // Unix 換行 → 逗號
+    .replace(/\t/g, ' ')        // Tab → 空格
+    .replace(/\s+/g, ' ')       // 多個空格 → 單個空格
+    .replace(/[“”]/g, '"')      // 智能引號 → 普通引號
+    .replace(/[‘’]/g, "'")      // 智能單引號 → 普通單引號
+    .trim();
+  
+  console.log(`[KreadoAI TTS] 原始文字: "${originalContent}"`);
+  console.log(`[KreadoAI TTS] 清理後文字: "${cleanedContent}"`);
+  console.log(`[KreadoAI TTS] 原始長度: ${originalContent.length} 字符`);
+  console.log(`[KreadoAI TTS] 清理後長度: ${cleanedContent.length} 字符`);
+  console.log(`[KreadoAI TTS] UTF-8 字節: ${Buffer.byteLength(cleanedContent, 'utf8')} bytes`);
   
   const requestBody = {
     languageId: langConfig.languageId,
-    content: content,
+    content: cleanedContent,  // ✅ 使用清理後的內容
     voiceId: voiceId,
     voiceSource: voiceSource,
     voiceClone: isCloneVoice ? 1 : 0,  // 克隆語音需要設置為 1
@@ -312,7 +327,7 @@ export async function generateSpeechWithKreado(
     const response = await fetch(KREADO_TTS_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",  // ✅ 明確 UTF-8 編碼
         "apiToken": KREADO_CONFIG.apiKey,
       },
       body: JSON.stringify(requestBody),
