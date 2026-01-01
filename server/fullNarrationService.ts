@@ -85,7 +85,9 @@ async function downloadAudio(url: string, localPath: string): Promise<void> {
     throw new Error(`下載音頻失敗: ${response.status}`);
   }
   
-  const buffer = await response.buffer();
+  // Node.js 內置 fetch 使用 arrayBuffer() 而不是 buffer()
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
   fs.writeFileSync(localPath, buffer);
   
   console.log(`[FullNarration] 音頻已下載: ${localPath} (${buffer.length} bytes)`);
