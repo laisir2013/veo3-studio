@@ -352,8 +352,8 @@ async function downloadFile(url: string, dest: string) {
 }
 
 /**
- * 輔助：檢測並修復音頻時長（確保旁白音頻是 8 秒）
- * 使用鏈式 atempo 濾鏡突破 0.5 倍速限制
+ * 輔助：檢測音頻時長（僅記錄日誌，不進行拉伸）
+ * 音頻時長不足時應通過增加旁白文字來解決，而不是拉伸音頻
  */
 async function ensureAudioDuration(audioPath: string, targetDuration: number = 8): Promise<void> {
   try {
@@ -361,46 +361,22 @@ async function ensureAudioDuration(audioPath: string, targetDuration: number = 8
     const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
     const actualDuration = parseFloat(stdout.trim());
     
-    console.log(`[Audio] 檢測音頻時長: ${actualDuration}秒 (目標: ${targetDuration}秒)`);
+    console.log(`[Audio] 檢測音頻時長: ${actualDuration.toFixed(2)}秒 (目標: ${targetDuration}秒)`);
     
     if (isNaN(actualDuration) || actualDuration <= 0) {
-      console.warn(`[Audio] ⚠️ 無法檢測音頻時長，跳過修復`);
+      console.warn(`[Audio] ⚠️ 無法檢測音頻時長`);
       return;
     }
     
     if (actualDuration < targetDuration - 0.5) {
-      // 如果實際時長少於目標時長 0.5 秒，進行拉伸
-      const ratio = targetDuration / actualDuration; // 需要拉伸的倍數
-      const tempPath = audioPath + '.temp.mp3';
-      
-      console.log(`[Audio] ⚠️ 音頻過短 (${actualDuration.toFixed(2)}s)，需要拉伸 ${ratio.toFixed(2)} 倍`);
-      
-      // 構建鏈式 atempo 濾鏡
-      // atempo 只支持 0.5-2.0 範圍，需要鏈式調用
-      // 例如：要拉伸 8 倍，需要 atempo=0.5,atempo=0.5,atempo=0.5 (0.5^3 = 0.125，即 8 倍拉伸)
-      const atempoFilters = buildAtempoChain(ratio);
-      
-      console.log(`[Audio] 使用濾鏡鏈: ${atempoFilters}`);
-      
-      // 使用鏈式 atempo 濾鏡拉伸音頻
-      const stretchCmd = `ffmpeg -y -i "${audioPath}" -filter:a "${atempoFilters}" -ar 44100 "${tempPath}"`;
-      await execAsync(stretchCmd, { timeout: 120000 });
-      
-      // 驗證拉伸後的時長
-      const { stdout: newDurationStr } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${tempPath}"`);
-      const newDuration = parseFloat(newDurationStr.trim());
-      console.log(`[Audio] 拉伸後時長: ${newDuration.toFixed(2)}秒`);
-      
-      // 替換原始文件
-      fs.unlinkSync(audioPath);
-      fs.renameSync(tempPath, audioPath);
-      
-      console.log(`[Audio] ✅ 音頻拉伸完成`);
+      // 僅記錄警告，不進行拉伸（拉伸會導致語速變慢，不自然）
+      console.log(`[Audio] ⚠️ 音頻較短 (${actualDuration.toFixed(2)}s)，但保持原始語速（不拉伸）`);
+      console.log(`[Audio] 💡 建議：增加旁白文字以獲得更長的音頻時長`);
     } else {
-      console.log(`[Audio] ✅ 音頻時長正常，無需修復`);
+      console.log(`[Audio] ✅ 音頻時長正常`);
     }
   } catch (error) {
-    console.warn(`[Audio] 警告：無法檢測/修復音頻時長:`, error);
+    console.warn(`[Audio] 警告：無法檢測音頻時長:`, error);
     // 不拋出錯誤，繼續處理
   }
 }
