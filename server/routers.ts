@@ -14,6 +14,7 @@ import { notifyOwner } from "./_core/notification";
 import { createBatchJob, getBatchJob, updateBatchTask, getAllBatchJobs, deleteBatchJob, estimateBatchTime, calculateMaxConcurrency } from "./batchService";
 import { createLongVideoTask, getLongVideoTask, updateLongVideoTask, updateSegment, startNextBatch, getBatchApiKey, isTaskCompleted, getUserLongVideoTasks, deleteLongVideoTask, getTaskStats, calculateSegmentCount, calculateBatchCount, BATCH_SIZE, SEGMENT_DURATION, type LongVideoTask, type Segment, type Batch } from "./segmentBatchService";
 import { truncateNarration } from "./segmentGenerationService";
+import { generateFullNarration, type SegmentNarration } from "./fullNarrationService";
 import { getAllVoiceActors, getVoiceActorsByGender, getVoiceActorsByType, matchVoiceActorByDescription, autoAssignVoiceActors, analyzeCharactersFromStory, generateSceneVoice, getAllVoiceActorsConfig, getVoiceStats, getFilterOptions, filterVoiceActorsAdvanced, getVoiceActorSampleUrl, getVoiceActorConfig, getAllSampleUrls, getVoiceActorsByAgeGroup, getVoiceActorsByStyle } from "./voiceService";
 import { VOICE_ACTORS, VOICE_MODES, type VoiceActorId, type VoiceMode } from "./videoConfig";
 import { characterVoices, type CharacterVoiceConfig } from "../drizzle/schema";
@@ -2135,7 +2136,7 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               }
             }
             
-            // 3. 生成語音旁白
+            // 3. 提取旁白文字（TTS 將在所有片段完成後一次過生成）
             // 從 narrationSegments 中提取旁白文字（LLM 返回的是 narrationSegments 陣列，不是單一 narration 字段）
             let narrationText = `Scene ${segment.id} narration`;
             if (sceneData?.narrationSegments && Array.isArray(sceneData.narrationSegments)) {
@@ -2147,65 +2148,13 @@ async function processLongVideoTask(taskId: string): Promise<void> {
               narrationText = sceneData.narration;
             }
             
-            // ✅ 新增：強制截斷旁白，確保旁白時長不超過影片時長
-            // 8 秒影片 × 2 字/秒 = 16 字上限
-            const originalLength = narrationText.length;
-            narrationText = truncateNarration(narrationText, task.language || 'cantonese', 16);
-            if (narrationText.length < originalLength) {
-              console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 旁白已截斷: ${originalLength} -> ${narrationText.length} 字`);
-            }
+            // ✅ 不再截斷旁白，讓完整旁白一次過生成
+            // 舊邏輯：截斷到 16 字以配合 8 秒視頻
+            // 新邏輯：保留完整旁白，TTS 會根據總時長自動調整
+            console.log(`[LongVideo ${taskId}] 片段 ${segment.id} 保留完整旁白: ${narrationText.length} 字`);
             
-            const voiceActorId = task.voiceActorId || 'default';
+            // 暫時不生成音頻，等所有片段完成後一次過生成
             let audioUrl = "";
-            
-            // 🔍 步驟 1：記錄 TTS 調用參數
-            console.log(`[LongVideo ${taskId}] 🎤 開始生成片段 ${segment.id} 的音頻`, {
-              narrationLength: narrationText.length,
-              narrationPreview: narrationText.substring(0, 30) + '...',
-              voiceActorId,
-              language: task.language || 'cantonese',
-            });
-            
-            // ✅ 更新狀態：正在生成音頻
-            updateSegment(taskId, segment.id, {
-              status: "generating",
-              progress: 70,
-              generatingStatus: `🎤 正在生成語音旁白：${narrationText.substring(0, 40)}...`,
-            });
-            
-            try {
-              // 🔍 步驟 2：調用 TTS 服務
-              console.log(`[LongVideo ${taskId}] 調用 generateSpeech...`);
-              audioUrl = await generateSpeech(
-                narrationText,
-                voiceActorId,
-                (task.language || 'cantonese') as any
-              );
-              
-              // 🔍 步驟 3：驗證返回的 URL
-              console.log(`[LongVideo ${taskId}] generateSpeech 返回:`, {
-                audioUrl: audioUrl?.substring(0, 80),
-                isValid: Boolean(audioUrl && audioUrl.startsWith("http")),
-              });
-              
-              // ✅ 驗證音頻 URL
-              if (!audioUrl || !audioUrl.startsWith("http")) {
-                console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻 URL 無效: "${audioUrl}"`);
-                audioUrl = "";
-              } else {
-                console.log(`[LongVideo ${taskId}] ✅ 片段 ${segment.id} 音頻生成成功: ${audioUrl.substring(0, 60)}...`);
-              }
-            } catch (audioError: any) {
-              // 🔍 步驟 4：詳細記錄錯誤
-              console.error(`[LongVideo ${taskId}] ❌ 片段 ${segment.id} 音頻生成失敗:`, {
-                message: audioError.message,
-                stack: audioError.stack?.substring(0, 300),
-                code: audioError.code,
-                statusCode: audioError.statusCode,
-              });
-              // 不拋出錯誤，繼續處理（允許沒有旁白的視頻）
-              audioUrl = "";
-            }
             
             // 🔍 步驟 5：保存前驗證
             console.log(`[LongVideo ${taskId}] 準備保存片段 ${segment.id}:`, {
@@ -2287,6 +2236,77 @@ async function processLongVideoTask(taskId: string): Promise<void> {
                 .sort((a, b) => a.id - b.id);
               
               if (completedSegments.length > 0) {
+                // 🎤 新增：一次過生成所有旁白音頻
+                console.log(`\n========== 🎤 開始生成完整旁白 [${taskId}] ==========`);
+                
+                // 準備旁白數據
+                const narrationSegments: SegmentNarration[] = completedSegments.map(seg => ({
+                  segmentId: seg.id,
+                  text: seg.narration || `Scene ${seg.id}`,
+                }));
+                
+                console.log(`[LongVideo ${taskId}] 旁白片段數量: ${narrationSegments.length}`);
+                narrationSegments.forEach((seg, i) => {
+                  console.log(`  片段 ${seg.segmentId}: ${seg.text.substring(0, 50)}...`);
+                });
+                
+                // 計算總文字長度
+                const totalChars = narrationSegments.reduce((sum, seg) => sum + seg.text.length, 0);
+                console.log(`[LongVideo ${taskId}] 總文字長度: ${totalChars} 字`);
+                
+                // 一次過生成完整旁白
+                const voiceActorId = task.voiceActorId || 'default';
+                const language = (task.language || 'cantonese') as any;
+                
+                try {
+                  updateLongVideoTask(taskId, {
+                    status: "generating",
+                    currentStep: "🎤 正在生成完整旁白音頻...",
+                  });
+                  
+                  const narrationResult = await generateFullNarration(
+                    narrationSegments,
+                    voiceActorId,
+                    language,
+                    true // 使用 Whisper 分割
+                  );
+                  
+                  if (narrationResult.success) {
+                    console.log(`[LongVideo ${taskId}] ✅ 完整旁白生成成功!`);
+                    console.log(`  完整音頻時長: ${narrationResult.fullAudioDuration.toFixed(2)} 秒`);
+                    console.log(`  分割片段數: ${narrationResult.segments.length}`);
+                    
+                    // 更新每個片段的音頻 URL
+                    for (const segResult of narrationResult.segments) {
+                      if (segResult.audioUrl) {
+                        updateSegment(taskId, segResult.segmentId, {
+                          audioUrl: segResult.audioUrl,
+                        });
+                        console.log(`  片段 ${segResult.segmentId} 音頻: ${segResult.audioUrl.substring(0, 60)}...`);
+                      }
+                    }
+                    
+                    // 重新獲取更新後的片段數據
+                    const updatedTask = getLongVideoTask(taskId);
+                    if (updatedTask) {
+                      completedSegments.forEach((seg, i) => {
+                        const updated = updatedTask.segments.find(s => s.id === seg.id);
+                        if (updated) {
+                          completedSegments[i] = updated;
+                        }
+                      });
+                    }
+                  } else {
+                    console.error(`[LongVideo ${taskId}] ❌ 完整旁白生成失敗: ${narrationResult.error}`);
+                    console.log(`[LongVideo ${taskId}] 繼續合併，但沒有旁白音頻`);
+                  }
+                } catch (narrationError: any) {
+                  console.error(`[LongVideo ${taskId}] ❌ 旁白生成異常:`, narrationError.message);
+                  console.log(`[LongVideo ${taskId}] 繼續合併，但沒有旁白音頻`);
+                }
+                
+                console.log(`\n========== 🎤 旁白生成完成 ==========\n`);
+                
                 // 🔧 完整診斷報告
                 console.log(`\n========== 🔍 合併診斷報告 [${taskId}] ==========`);
                 console.log(`任務 ID: ${taskId}`);
