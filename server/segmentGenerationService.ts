@@ -133,12 +133,19 @@ export async function generateSegments(params: GenerateSegmentsParams): Promise<
 【語氣】專業講解員或知識類主播`,
   };
 
-  // ✅ 修復：旁白字數要求（微調到 20-26 個字，黃金語速風格）
-  // 8秒影片，建議 20-24 個字，最多 26 個字
-  const maxNarrationLength = 26;
-  const narrationLength = language === 'english' 
-    ? '20-26個英文單詞（自然快節奏風格）' 
-    : '20-26個中文字（自然快節奏風格）';
+  // ✅ 修復：根據語言類型設定不同的字數要求
+  // 粵語口語語速較慢，音節較長，需要較少字數
+  // 普通話語速較快，需要更多字數才能填滿 8 秒
+  const narrationConfig = {
+    cantonese: { min: 15, max: 22, desc: '15-22個粵語字（口語語速較慢）' },
+    mandarin: { min: 25, max: 35, desc: '25-35個普通話字（語速較快）' },
+    english: { min: 20, max: 30, desc: '20-30個英文單詞' },
+    clone: { min: 20, max: 30, desc: '20-30個中文字' },
+  };
+  const config = narrationConfig[language];
+  const maxNarrationLength = config.max;
+  const minNarrationLength = config.min;
+  const narrationLength = config.desc;
 
   const systemPrompt = `你是一位專業的視頻腳本撰寫專家。你需要根據給定的視頻主題和故事大綱，為每個8秒的視頻片段生成：
 1. 場景描述（description）：詳細描述這個片段的視覺畫面，用於 AI 生成視頻
@@ -150,19 +157,23 @@ ${languagePrompt[language]}
 
 【旁白字數要求 - 極其重要】
 - 每個片段的旁白需要 ${narrationLength}
-- ⚠️ 絕對不能超過 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
-- 語速自然偏快，充滿活力，像 TikTok/Reels 的短視頻解說
-- 內容精煉，信息量適中，確保聽眾能聽清
+- ⚠️ 最少 ${minNarrationLength} 個字/單詞！太短會導致語音只有 2 秒！
+- ⚠️ 最多 ${maxNarrationLength} 個字/單詞！超過會被強制截斷！
+- 語速自然，充滿活力，像 TikTok/Reels 的短視頻解說
+- 內容要足夠豐富，確保能填滿 8 秒的語音時長
 
 【旁白風格要求】
 ${language === 'cantonese' ? 
-`粵語示例（15字）：「今日我哋嚟傾下，點解有人賺錢咁輕鬆？」✅
-錯誤示例（30字）：「今日我哋嚟傾下一個好有趣嘅話題，就係點解有啲人可以輕鬆賺錢呢？」❌ 太長了！` 
+`粵語示例（18字，約 8 秒）：「今日我哋嘆傾下呢個話題，點解有人賺錢咳輕鬆呢？」✅
+錯誤示例（5字，太短）：「今日傾下錢」❌ 太短了，只有 2 秒！
+錯誤示例（30字，太長）：「今日我哋嘆傾下一個好有趣嘊話題，就係點解有啲人可以輕鬆賺錢呢？」❌ 太長了！` 
 : language === 'mandarin' ? 
-`普通話示例（15字）：「今天我們來聊聊，為什麼有人賺錢輕鬆？」✅
-錯誤示例（30字）：「今天我們來聊一個非常有趣的話題，為什麼有些人能輕鬆賺錢？」❌ 太長了！`
-: `English Example (15 words): "Today, let's explore why some people make money easily." ✅
-Wrong Example (30 words): "Today, we're diving into a fascinating question about why some people make money so easily." ❌ Too long!`}
+`普通話示例（30字，約 8 秒）：「今天我們來聊一個很有意思的話題，為什麼有些人賺錢看起來那麼輕鬆呢？」✅
+錯誤示例（10字，太短）：「今天聊賺錢」❌ 太短了，只有 2 秒！
+錯誤示例（50字，太長）：「今天我們來聊一個非常有趣的話題，就是為什麼有些人能輕鬆賺錢，而有些人却很辛苦呢？」❌ 太長了！`
+: `English Example (25 words, ~8 sec): "Today, let's explore a fascinating topic - why do some people seem to make money so effortlessly while others struggle?" ✅
+Wrong Example (8 words, too short): "Today, let's talk about money." ❌ Too short, only 2 seconds!
+Wrong Example (40 words, too long): "Today, we're going to dive deep into a really fascinating question..." ❌ Too long!`}
 
 【場景描述要求】
 - 要具體、視覺化，便於 AI 理解並生成畫面
@@ -225,14 +236,16 @@ ${outline}
       throw new Error("LLM 返回格式錯誤：缺少 segments 數組");
     }
 
-    // 驗證並清理數據，✅ 新增：強制截斷過長的旁白
+    // 驗證並清理數據，✅ 新增：強制截斷過長的旁白 + 檢查太短的旁白
     const segments: GeneratedSegment[] = parsed.segments.map((seg: any, index: number) => {
       let narration = seg.narration || `片段 ${index + 1} 的旁白內容`;
       
-      // 記錄原始旁白字數
-      const originalWordCount = language === 'english' 
-        ? narration.split(/\s+/).length 
-        : narration.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
+      // 計算原始旁白字數
+      const countWords = (text: string) => language === 'english' 
+        ? text.split(/\s+/).length 
+        : text.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
+      
+      const originalWordCount = countWords(narration);
       
       // ✅ 強制截斷過長的旁白
       if (originalWordCount > maxNarrationLength) {
@@ -240,10 +253,23 @@ ${outline}
         narration = truncateNarration(narration, language, maxNarrationLength);
       }
       
+      // ✅ 新增：檢查旁白是否太短，如果太短則警告並嘗試補充
+      const currentWordCount = countWords(narration);
+      if (currentWordCount < minNarrationLength) {
+        console.warn(`[generateSegments] ⚠️ 片段 ${index + 1} 旁白太短 (${currentWordCount} ${language === 'english' ? 'words' : '字'})，最少需要 ${minNarrationLength}`);
+        // 根據語言補充默認內容
+        const fillers = {
+          cantonese: '，啲個內容真係幾有趣，我哋繼續嘆下去',
+          mandarin: '，這個內容真的很有意思，讓我們繼續探討一下',
+          english: ', this is really fascinating, let us explore further',
+          clone: '，這個內容真的很有意思，讓我們繼續探討',
+        };
+        narration = narration + (fillers[language] || fillers.mandarin);
+        console.log(`[generateSegments] ✅ 已補充旁白，新字數: ${countWords(narration)}`);
+      }
+      
       // 記錄最終旁白字數
-      const finalWordCount = language === 'english' 
-        ? narration.split(/\s+/).length 
-        : narration.replace(/[，。！？、；：「」『』（）\s]/g, '').length;
+      const finalWordCount = countWords(narration);
       console.log(`[generateSegments] 片段 ${index + 1} 最終旁白字數: ${finalWordCount} ${language === 'english' ? 'words' : '字'}`);
       
       return {
