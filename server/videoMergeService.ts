@@ -437,29 +437,107 @@ function buildAtempoChain(ratio: number): string {
 }
 
 /**
- * 輔助：標準化視頻
+ * 輔助：檢測文件是否為圖片
+ */
+async function isImageFile(filePath: string): Promise<boolean> {
+  try {
+    // 使用 ffprobe 檢測文件類型
+    const { stdout } = await execAsync(`ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filePath}"`);
+    const codec = stdout.trim().toLowerCase();
+    // 常見圖片編碼
+    const imageCodecs = ['mjpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'jpeg2000'];
+    return imageCodecs.some(ic => codec.includes(ic) || codec === ic);
+  } catch (error) {
+    // 如果 ffprobe 失敗，檢查文件擴展名
+    const ext = path.extname(filePath).toLowerCase();
+    return ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(ext);
+  }
+}
+
+/**
+ * 輔助：標準化單個片段（支持圖片和視頻）
  */
 async function normalizeVideo(inputPath: string, audioPath: string, outputPath: string, options: any) {
   const hasAudio = audioPath && fs.existsSync(audioPath);
   const narrationVol = options.narrationVolume / 100;
   const originalVol = options.originalVolume / 100;
+  
+  // 檢測輸入是否為圖片
+  const isImage = await isImageFile(inputPath);
+  console.log(`[Normalize] 輸入文件類型: ${isImage ? '圖片' : '視頻'}, 路徑: ${inputPath}`);
 
   let cmd = "";
-  if (hasAudio) {
-    cmd = [
-      "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
-      "-filter_complex", `"[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
-      "-map", "0:v", "-map", '"[aout]"',
-      "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
-      "-r", String(NORMALIZE_CONFIG.fps),
-      "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
-      "-c:a", NORMALIZE_CONFIG.audioCodec, `"${outputPath}"`
-    ].join(" ");
+  
+  if (isImage) {
+    // 圖片輸入：使用 -loop 1 將圖片轉換為 8 秒視頻
+    if (hasAudio) {
+      // 有音頻：圖片 + 音頻 -> 視頻
+      cmd = [
+        "ffmpeg", "-y", "-threads", "1",
+        "-loop", "1", "-i", `"${inputPath}"`,  // 循環圖片
+        "-i", `"${audioPath}"`,                  // 音頻輸入
+        "-t", "8",                               // 限制時長為 8 秒
+        "-vf", `"scale=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:force_original_aspect_ratio=decrease,pad=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:(ow-iw)/2:(oh-ih)/2,fps=${NORMALIZE_CONFIG.fps}"`,
+        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
+        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-map", "0:v", "-map", "1:a",
+        "-shortest",
+        `"${outputPath}"`
+      ].join(" ");
+    } else {
+      // 無音頻：圖片 -> 靜音視頻
+      cmd = [
+        "ffmpeg", "-y", "-threads", "1",
+        "-loop", "1", "-i", `"${inputPath}"`,
+        "-t", "8",
+        "-vf", `"scale=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:force_original_aspect_ratio=decrease,pad=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:(ow-iw)/2:(oh-ih)/2,fps=${NORMALIZE_CONFIG.fps}"`,
+        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
+        "-an",  // 無音頻
+        `"${outputPath}"`
+      ].join(" ");
+    }
   } else {
-    cmd = `ffmpeg -y -threads 1 -i "${inputPath}" -s ${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height} -r ${NORMALIZE_CONFIG.fps} -c:v ${NORMALIZE_CONFIG.videoCodec} -preset ultrafast -crf 32 "${outputPath}"`;
+    // 視頻輸入：原有邏輯
+    if (hasAudio) {
+      // 檢測視頻是否有音頻流
+      let hasVideoAudio = false;
+      try {
+        const { stdout } = await execAsync(`ffprobe -v error -select_streams a -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "${inputPath}"`);
+        hasVideoAudio = stdout.trim().length > 0;
+      } catch (e) {
+        hasVideoAudio = false;
+      }
+      
+      if (hasVideoAudio) {
+        // 視頻有音頻：混合原始音頻和旁白
+        cmd = [
+          "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
+          "-filter_complex", `"[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
+          "-map", "0:v", "-map", '"[aout]"',
+          "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
+          "-r", String(NORMALIZE_CONFIG.fps),
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, `"${outputPath}"`
+        ].join(" ");
+      } else {
+        // 視頻無音頻：只使用旁白
+        cmd = [
+          "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
+          "-map", "0:v", "-map", "1:a",
+          "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
+          "-r", String(NORMALIZE_CONFIG.fps),
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-shortest", `"${outputPath}"`
+        ].join(" ");
+      }
+    } else {
+      cmd = `ffmpeg -y -threads 1 -i "${inputPath}" -s ${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height} -r ${NORMALIZE_CONFIG.fps} -c:v ${NORMALIZE_CONFIG.videoCodec} -preset ultrafast -crf 32 "${outputPath}"`;
+    }
   }
 
+  console.log(`[Normalize] 執行命令: ${cmd.substring(0, 200)}...`);
   await execAsync(cmd, { timeout: 180000 });
+  console.log(`[Normalize] ✅ 標準化完成: ${outputPath}`);
 }
 
 /**
