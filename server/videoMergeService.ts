@@ -284,11 +284,21 @@ async function downloadFileWithRetry(url: string, dest: string, maxRetries: numb
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(url, { timeout: 30000 });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const arrayBuffer = await response.arrayBuffer();
-      fs.writeFileSync(dest, Buffer.from(arrayBuffer));
-      return;
+      // 使用 AbortController 實現超時控制
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        fs.writeFileSync(dest, Buffer.from(arrayBuffer));
+        return;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
       lastError = error;
       console.warn(`[Download] 第 ${attempt} 次嘗試失敗: ${url}`, error);

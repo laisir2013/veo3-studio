@@ -2128,9 +2128,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
                       
                       // 重置所有狀態
                       setCurrentStep(1);
-                      setTopic("");
+                      setVideoTitle("");
                       setSelectedLanguage("cantonese");
-                      setSelectedVoiceActor(null);
+                      setSelectedVoiceActor("");
                       setStoryOutline("");
                       setSegments([]);
                       setVideoTitle("");
