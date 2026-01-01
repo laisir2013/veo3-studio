@@ -328,12 +328,20 @@ export async function generateSpeechWithKreado(
       throw new Error(`KreadoAI TTS 錯誤: ${data.message}`);
     }
     
-    console.log(`[KreadoAI TTS] 成功生成語音: ${data.data.textToSpeech.audioUrl}`);
-    console.log(`[KreadoAI TTS] 時長: ${data.data.textToSpeech.duration}秒, 消耗: ${data.data.textToSpeech.paymentMoney}點`);
+    const audioUrl = data.data.textToSpeech.audioUrl;
+    let duration = data.data.textToSpeech.duration;
+    
+    console.log(`[KreadoAI TTS] 成功生成語音: ${audioUrl}`);
+    console.log(`[KreadoAI TTS] API 返回時長: ${duration}秒`);
+    
+    // 新增：驗證音頻時長，如果太短則標記為需要修復
+    if (duration < 3) {
+      console.warn(`[KreadoAI TTS] 警告：API 返回的時長過短 (${duration}秒)，可能需要修復`);
+    }
     
     return {
-      audioUrl: data.data.textToSpeech.audioUrl,
-      duration: data.data.textToSpeech.duration,
+      audioUrl: audioUrl,
+      duration: duration,
     };
   } catch (error) {
     console.error("[KreadoAI TTS] 錯誤:", error);

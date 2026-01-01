@@ -133,7 +133,11 @@ async function processMerge(params: any, taskId: string) {
 
         // 下載素材（帶重試機制）
         await downloadFileWithRetry(url, segmentPath, 3);
-        if (batchAudios[index]) await downloadFileWithRetry(batchAudios[index], audioPath, 3);
+        if (batchAudios[index]) {
+          await downloadFileWithRetry(batchAudios[index], audioPath, 3);
+          // 新增：檢測並修復音頻時長
+          await ensureAudioDuration(audioPath, 8);
+        }
 
         // 標準化片段
         await normalizeVideo(segmentPath, audioPath, outputPath, {
@@ -319,6 +323,42 @@ async function downloadFile(url: string, dest: string) {
   if (!response.ok) throw new Error(`下載失敗: ${url}`);
   const arrayBuffer = await response.arrayBuffer();
   fs.writeFileSync(dest, Buffer.from(arrayBuffer));
+}
+
+/**
+ * 輔助：檢測並修復音頻時長（確保旁白音頻是 8 秒）
+ */
+async function ensureAudioDuration(audioPath: string, targetDuration: number = 8): Promise<void> {
+  try {
+    // 使用 ffprobe 檢測實際時長
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:noprint_wrappers=1 "${audioPath}"`);
+    const actualDuration = parseFloat(stdout.trim());
+    
+    console.log(`[Audio] 檢測音頻時長: ${actualDuration}秒 (目標: ${targetDuration}秒)`);
+    
+    if (actualDuration < targetDuration - 0.5) {
+      // 如果實際時長少於目標時長 0.5 秒，進行拉伸
+      const tempo = actualDuration / targetDuration; // 計算速度因子
+      const tempPath = audioPath + '.temp.mp3';
+      
+      console.log(`[Audio] ⚠️ 音頻過短，進行拉伸修復 (速度因子: ${tempo.toFixed(3)})`);
+      
+      // 使用 atempo 濾鏡拉伸音頻
+      const stretchCmd = `ffmpeg -y -i "${audioPath}" -filter:a "atempo=${tempo.toFixed(3)}" "${tempPath}"`;
+      await execAsync(stretchCmd, { timeout: 60000 });
+      
+      // 替換原始文件
+      fs.unlinkSync(audioPath);
+      fs.renameSync(tempPath, audioPath);
+      
+      console.log(`[Audio] ✅ 音頻拉伸完成，新時長應為 ${targetDuration}秒`);
+    } else {
+      console.log(`[Audio] ✅ 音頻時長正常，無需修復`);
+    }
+  } catch (error) {
+    console.warn(`[Audio] 警告：無法檢測/修復音頻時長:`, error);
+    // 不拋出錯誤，繼續處理
+  }
 }
 
 /**
