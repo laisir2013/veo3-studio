@@ -332,16 +332,16 @@ async function normalizeVideo(inputPath: string, audioPath: string, outputPath: 
   let cmd = "";
   if (hasAudio) {
     cmd = [
-      "ffmpeg", "-y", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
+      "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
       "-filter_complex", `"[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
       "-map", "0:v", "-map", '"[aout]"',
       "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
       "-r", String(NORMALIZE_CONFIG.fps),
-      "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+      "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
       "-c:a", NORMALIZE_CONFIG.audioCodec, `"${outputPath}"`
     ].join(" ");
   } else {
-    cmd = `ffmpeg -y -i "${inputPath}" -s ${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height} -r ${NORMALIZE_CONFIG.fps} -c:v ${NORMALIZE_CONFIG.videoCodec} -preset ultrafast -crf 28 "${outputPath}"`;
+    cmd = `ffmpeg -y -threads 1 -i "${inputPath}" -s ${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height} -r ${NORMALIZE_CONFIG.fps} -c:v ${NORMALIZE_CONFIG.videoCodec} -preset ultrafast -crf 32 "${outputPath}"`;
   }
 
   await execAsync(cmd, { timeout: 180000 });
