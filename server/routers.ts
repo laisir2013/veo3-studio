@@ -681,6 +681,13 @@ export const appRouter = router({
       }),
 
     // 合併視頻 - ✅ 已改為異步模式
+    status: publicProcedure
+      .input(z.object({ mergeTaskId: z.string() }))
+      .query(async ({ input }) => {
+        const { getMergeTaskStatus } = await import("./videoMergeService");
+        const status = getMergeTaskStatus(input.mergeTaskId);
+        return status;
+      }),
     merge: publicProcedure
       .input(z.object({
         taskId: z.string(),

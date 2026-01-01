@@ -1009,9 +1009,12 @@ Total: ${segmentCount} segments of 8 seconds each`;
     }
   };
 
-  // 導航函數
+  // 導航函數 - 修復：允許返回到任何之前的步驟
   const handleStepClick = (stepId: number) => {
-    if (stepId <= currentStep || stepStatuses[stepId - 1] === "completed") {
+    // 允許返回到當前步驟之前的任何步驟，或已完成的步驟
+    if (stepId <= currentStep) {
+      setCurrentStep(stepId);
+    } else if (stepStatuses[stepId] === "completed") {
       setCurrentStep(stepId);
     }
   };

@@ -103,7 +103,7 @@ export async function mergeVideos(params: {
 }
 
 /**
- * 核心合併邏輯 (異步執行)
+ * 核心合併邏輯 (異步執行) - 支持 8 分鐘視頻的分段合併
  */
 async function processMerge(params: any, taskId: string) {
   const { videoUrls, audioUrls, bgmUrl, bgmVolume = 30, narrationVolume = 80, originalVolume = 50 } = params;
@@ -116,7 +116,11 @@ async function processMerge(params: any, taskId: string) {
     const normalizedFiles: string[] = [];
 
     // 1. 分批處理片段 (每次處理 3 個，避免內存峰值)
+    // 對於 8 分鐘視頻（~60-80 片段），採用兩層分段策略
     const batchSize = 3;
+    const chunkSize = 15; // 每 15 個片段為一個中間合併單位
+    const intermediateChunks: string[] = [];
+    
     for (let i = 0; i < totalSegments; i += batchSize) {
       const batch = videoUrls.slice(i, i + batchSize);
       const batchAudios = audioUrls.slice(i, i + batchSize);
@@ -127,15 +131,21 @@ async function processMerge(params: any, taskId: string) {
         const audioPath = path.join(tempDir, `audio_${realIndex}.mp3`);
         const outputPath = path.join(tempDir, `norm_${realIndex}.mp4`);
 
-        // 下載素材
-        await downloadFile(url, segmentPath);
-        if (batchAudios[index]) await downloadFile(batchAudios[index], audioPath);
+        // 下載素材（帶重試機制）
+        await downloadFileWithRetry(url, segmentPath, 3);
+        if (batchAudios[index]) await downloadFileWithRetry(batchAudios[index], audioPath, 3);
 
         // 標準化片段
         await normalizeVideo(segmentPath, audioPath, outputPath, {
           narrationVolume,
           originalVolume
         });
+        
+        // 清理原始文件以節省內存
+        try {
+          if (fs.existsSync(segmentPath)) fs.unlinkSync(segmentPath);
+          if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+        } catch (e) {}
 
         return outputPath;
       });
@@ -143,39 +153,79 @@ async function processMerge(params: any, taskId: string) {
       const results = await Promise.all(batchPromises);
       normalizedFiles.push(...results);
       
+      // 當達到 chunkSize 時，進行中間合併
+      if (normalizedFiles.length >= chunkSize || i + batchSize >= totalSegments) {
+        const chunkIndex = intermediateChunks.length;
+        const chunkFiles = normalizedFiles.splice(0, chunkSize);
+        
+        if (chunkFiles.length > 1) {
+          const intermediateOutput = path.join(tempDir, `chunk_${chunkIndex}.mp4`);
+          await mergeChunk(chunkFiles, intermediateOutput);
+          intermediateChunks.push(intermediateOutput);
+          
+          // 清理中間文件
+          chunkFiles.forEach(f => {
+            try {
+              if (fs.existsSync(f)) fs.unlinkSync(f);
+            } catch (e) {}
+          });
+        } else if (chunkFiles.length === 1) {
+          intermediateChunks.push(chunkFiles[0]);
+        }
+      }
+      
       // 更新進度
-      const progress = Math.round(((i + batch.length) / totalSegments) * 80);
+      const progress = Math.round(((i + batch.length) / totalSegments) * 60);
       mergeTasks.set(taskId, { success: false, status: "processing", progress, taskId });
     }
+    
+    // 如果還有剩餘的標準化文件，添加到中間塊
+    if (normalizedFiles.length > 0) {
+      if (normalizedFiles.length > 1) {
+        const chunkIndex = intermediateChunks.length;
+        const intermediateOutput = path.join(tempDir, `chunk_${chunkIndex}.mp4`);
+        await mergeChunk(normalizedFiles, intermediateOutput);
+        intermediateChunks.push(intermediateOutput);
+      } else {
+        intermediateChunks.push(normalizedFiles[0]);
+      }
+    }
 
-    // 2. 處理背景音樂
+    // 2. 最終合併所有中間塊
     const listPath = path.join(tempDir, "list.txt");
-    const listContent = normalizedFiles.map(f => `file '${f}'`).join("\n");
+    const listContent = intermediateChunks.map(f => `file '${f}'`).join("\n");
     fs.writeFileSync(listPath, listContent);
 
     const finalPath = path.join(tempDir, "final_output.mp4");
 
-    // 3. 執行合併
-    console.log(`[MergeTask] 執行最終合併...`);
+    // 3. 執行最終合併（如果有多個中間塊）
+    console.log(`[MergeTask] 執行最終合併... (中間塊數: ${intermediateChunks.length})`);
     let mergeCmd = "";
-    if (bgmUrl) {
-      const bgmPath = path.join(tempDir, "bgm.mp3");
-      await downloadFile(bgmUrl, bgmPath);
-      const bgmVol = bgmVolume / 100;
+    
+    if (intermediateChunks.length === 1) {
+      // 只有一個中間塊，直接複製
+      fs.copyFileSync(intermediateChunks[0], finalPath);
+    } else if (intermediateChunks.length > 1) {
+      // 多個中間塊，執行合併
+      if (bgmUrl) {
+        const bgmPath = path.join(tempDir, "bgm.mp3");
+        await downloadFileWithRetry(bgmUrl, bgmPath, 3);
+        const bgmVol = bgmVolume / 100;
+        
+        mergeCmd = [
+          "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+          "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+          "-filter_complex", `"[0:a]volume=1.0[a0];[1:a]volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+          "-map", "0:v", "-map", '"[aout]"',
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-shortest", `"${finalPath}"`
+        ].join(" ");
+      } else {
+        mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`;
+      }
       
-      mergeCmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
-        "-stream_loop", "-1", "-i", `"${bgmPath}"`,
-        "-filter_complex", `"[0:a]volume=1.0[a0];[1:a]volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
-        "-map", "0:v", "-map", '"[aout]"',
-        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-        "-c:a", NORMALIZE_CONFIG.audioCodec, "-shortest", `"${finalPath}"`
-      ].join(" ");
-    } else {
-      mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`;
+      await execAsync(mergeCmd, { timeout: 600000 }); // 10 分鐘超時
     }
-
-    await execAsync(mergeCmd, { timeout: 600000 }); // 10 分鐘超時
 
     // 4. 上傳結果
     mergeTasks.set(taskId, { success: false, status: "processing", progress: 90, taskId });
@@ -207,6 +257,48 @@ async function processMerge(params: any, taskId: string) {
       if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
     } catch (e) {}
   }
+}
+
+/**
+ * 輔助：合併一個片段塊（內部使用）
+ */
+async function mergeChunk(files: string[], outputPath: string) {
+  const listPath = `${outputPath}.list`;
+  const listContent = files.map(f => `file '${f}'`).join("\n");
+  fs.writeFileSync(listPath, listContent);
+  
+  const cmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${outputPath}"`;
+  await execAsync(cmd, { timeout: 300000 });
+  
+  // 清理列表文件
+  try {
+    if (fs.existsSync(listPath)) fs.unlinkSync(listPath);
+  } catch (e) {}
+}
+
+/**
+ * 輔助：帶重試機制的文件下載
+ */
+async function downloadFileWithRetry(url: string, dest: string, maxRetries: number = 3) {
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, { timeout: 30000 });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const arrayBuffer = await response.arrayBuffer();
+      fs.writeFileSync(dest, Buffer.from(arrayBuffer));
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Download] 第 ${attempt} 次嘗試失敗: ${url}`, error);
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // 指數退避
+      }
+    }
+  }
+  
+  throw new Error(`下載失敗 (${maxRetries} 次嘗試): ${url} - ${lastError.message}`);
 }
 
 /**
