@@ -271,6 +271,19 @@ const getAllApiConfigs = (): ApiConfig[] => {
     });
   }
   
+  // 優先級 5: Manus 內置環境變量 (作為最終保底)
+  if (process.env.OPENAI_API_KEY && !configs.some(c => c.apiKey === process.env.OPENAI_API_KEY)) {
+    configs.push({
+      provider: "openai",
+      apiUrl: process.env.OPENAI_BASE_URL 
+        ? `${process.env.OPENAI_BASE_URL.replace(/\/$/, "")}/chat/completions`
+        : "https://api.openai.com/v1/chat/completions",
+      apiKey: process.env.OPENAI_API_KEY,
+      model: "gpt-4o-mini",
+      priority: 5,
+    });
+  }
+
   // 按優先級排序（數字越小優先級越高）
   // 但我們希望先嘗試用戶配置的 API，失敗後再用 Forge
   // 所以重新排序：Vector Engine > Anthropic > OpenAI > Forge（作為最終後備）
