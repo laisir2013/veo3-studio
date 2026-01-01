@@ -135,6 +135,18 @@ async function startServer() {
     }
   });
   
+  // 獲取合併任務狀態 API
+  app.get("/api/merge-status/:taskId", async (req, res) => {
+    try {
+      const { getMergeTaskStatus } = await import("../videoMergeService");
+      const { taskId } = req.params;
+      const status = getMergeTaskStatus(taskId);
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ success: false, error: "獲取狀態失敗" });
+    }
+  });
+
   // ✅ 智能字幕 API（使用 AI 識別語音時間）
   app.post("/api/generate-smart-subtitles", async (req, res) => {
     try {
