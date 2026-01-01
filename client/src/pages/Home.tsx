@@ -1003,24 +1003,36 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                 if (script.title) {
                   setVideoTitle(script.title);
                 }
+                
+                // 檢查是否有完整旁白
+                const hasFullNarration = script.fullNarration && script.fullNarration.length > 0;
+                
                 // 將解析的片段轉換為 Scene 格式
                 const scenes: Scene[] = script.segments.map((seg, index) => ({
                   id: `scene_${Date.now()}_${index}`,
                   description: seg.description,
-                  narration: seg.narration,
-                  narrationSegments: seg.narration ? [{
+                  narration: hasFullNarration ? '' : seg.narration, // 如果有完整旁白，片段旁白留空
+                  narrationSegments: (!hasFullNarration && seg.narration) ? [{
                     segmentId: index + 1,
                     text: seg.narration,
                   }] : undefined,
                   status: "pending" as const,
                 }));
                 setCustomScenes(scenes);
-                // 生成故事大綱（合併所有旁白）
-                const outline = script.segments.map((seg, index) => 
-                  `【片段 ${index + 1}】\n${seg.narration || seg.description}`
-                ).join('\n\n');
-                setStory(outline);
-                toast.success(`已導入 ${script.segments.length} 個片段的腳本`);
+                
+                // 設置故事大綱
+                if (hasFullNarration) {
+                  // 新格式：使用完整旁白作為故事大綱
+                  setStory(script.fullNarration);
+                } else {
+                  // 舊格式：合併所有片段旁白
+                  const outline = script.segments.map((seg, index) => 
+                    `【片段 ${index + 1}】\n${seg.narration || seg.description}`
+                  ).join('\n\n');
+                  setStory(outline);
+                }
+                
+                toast.success(`已導入 ${script.segments.length} 個片段的腳本${hasFullNarration ? '（含完整旁白）' : ''}`);
               }}
             />
 
