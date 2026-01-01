@@ -271,7 +271,26 @@ const getAllApiConfigs = (): ApiConfig[] => {
     });
   }
   
-  // 優先級 5: Manus 內置環境變量 (作為最終保底)
+  // 優先級 5: 自動識別所有以 API_KEY 或 LLM_KEY 開頭的環境變量 (支持用戶配置的 13 個 API)
+  Object.keys(process.env).forEach(key => {
+    if ((key.startsWith("API_KEY") || key.startsWith("LLM_KEY")) && process.env[key]) {
+      const apiKey = process.env[key]!;
+      // 避免重複添加
+      if (!configs.some(c => c.apiKey === apiKey)) {
+        configs.push({
+          provider: "openai", // 默認使用 OpenAI 兼容格式
+          apiUrl: process.env.OPENAI_BASE_URL 
+            ? `${process.env.OPENAI_BASE_URL.replace(/\/$/, "")}/chat/completions`
+            : "https://api.openai.com/v1/chat/completions",
+          apiKey: apiKey,
+          model: "gpt-4o-mini",
+          priority: 6,
+        });
+      }
+    }
+  });
+
+  // 優先級 7: Manus 內置環境變量 (作為最終保底)
   if (process.env.OPENAI_API_KEY && !configs.some(c => c.apiKey === process.env.OPENAI_API_KEY)) {
     configs.push({
       provider: "openai",
@@ -280,7 +299,7 @@ const getAllApiConfigs = (): ApiConfig[] => {
         : "https://api.openai.com/v1/chat/completions",
       apiKey: process.env.OPENAI_API_KEY,
       model: "gpt-4o-mini",
-      priority: 5,
+      priority: 7,
     });
   }
 
