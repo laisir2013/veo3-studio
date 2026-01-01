@@ -238,7 +238,46 @@ interface KreadoTTSResponse {
 }
 
 /**
+ * 預估文字應該產生的最小音頻時長（毫秒）
+ * 中文約 3-4 字/秒，取保守值 5 字/秒
+ */
+function estimateMinDuration(content: string, language: VoiceLanguage): number {
+  const charCount = content.length;
+  // 英文話速更快，約 150 字/分鐘 = 2.5 字/秒
+  // 中文話速約 200-300 字/分鐘 = 3-5 字/秒
+  const charsPerSecond = language === 'english' ? 12 : 5;  // 英文按單詞算更快
+  const minSeconds = charCount / charsPerSecond;
+  return Math.max(minSeconds * 1000, 1500);  // 最少 1.5 秒
+}
+
+/**
+ * 清理文字內容，移除可能導致 API 截斷的字符
+ */
+function cleanTTSContent(content: string): string {
+  return content
+    // 移除換行符
+    .replace(/\r\n/g, '，')
+    .replace(/\n/g, '，')
+    .replace(/\r/g, '，')
+    // 移除 Tab
+    .replace(/\t/g, ' ')
+    // 移除多餘空格
+    .replace(/\s+/g, ' ')
+    // 移除零寬字符
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // 移除控制字符
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    // 智能引號 → 普通引號
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    // 移除可能導致問題的特殊標點
+    .replace(/[…]/g, '...')
+    .trim();
+}
+
+/**
  * 使用 KreadoAI TTS API 生成語音
+ * 帶時長驗證和重試機制
  * @param content 要轉換的文字內容
  * @param voiceActorId 配音員 ID（如 "cantonese-male-narrator"）
  * @param language 語言（cantonese, mandarin, english）
@@ -251,6 +290,7 @@ export async function generateSpeechWithKreado(
 ): Promise<{ audioUrl: string; duration: number }> {
   const langConfig = LANGUAGE_CONFIG[language];
   const voiceMapping = VOICE_ACTOR_MAPPING[voiceActorId];
+  const maxRetries = 3;  // 最大重試次數
   
   // 使用配音員映射或默認配置
   let voiceId: string;
@@ -260,25 +300,19 @@ export async function generateSpeechWithKreado(
   let isCloneVoice = false;
   
   if (voiceMapping) {
-    // 如果在映射表中找到，使用映射的配置
     voiceId = voiceMapping.voiceId;
     voiceSource = voiceMapping.voiceSource;
     isCloneVoice = voiceMapping.isClone || false;
     console.log(`[KreadoAI TTS] 使用映射配音員: ${voiceActorId} -> ${voiceId}, isClone: ${isCloneVoice}`);
   } else {
-    // 檢查是否是 KreadoAI 原生 voiceId 格式
     const isMinimaxVoice = voiceActorId && voiceActorId.startsWith('Minimax');
     const isAiVoice = voiceActorId && voiceActorId.startsWith('ai_');
     const isBvVoice = voiceActorId && voiceActorId.startsWith('BV');
     const isElevenLabsVoice = voiceActorId && /^[a-zA-Z0-9]{20,}$/.test(voiceActorId);
     
     if (isMinimaxVoice || isAiVoice || isBvVoice || isElevenLabsVoice) {
-      // 直接使用原生 voiceId
       voiceId = voiceActorId;
-      // 根據 voiceId 格式推斷 voiceSource
-      if (isMinimaxVoice) {
-        voiceSource = 5; // MiniMax
-      } else if (isAiVoice) {
+      if (isMinimaxVoice || isAiVoice) {
         voiceSource = 5; // MiniMax
       } else if (isBvVoice) {
         voiceSource = 4; // ByteDance
@@ -287,86 +321,123 @@ export async function generateSpeechWithKreado(
       }
       console.log(`[KreadoAI TTS] 使用原生 voiceId: ${voiceId}, voiceSource: ${voiceSource}`);
     } else {
-      // 使用語言默認配置
       voiceId = langConfig.defaultVoiceId;
       voiceSource = langConfig.voiceSource;
       console.log(`[KreadoAI TTS] 未找到映射，使用默認: ${voiceActorId} -> ${voiceId}`);
     }
   }
   
-  console.log(`[KreadoAI TTS] 生成語音: language=${language}, voiceId=${voiceId}, voiceSource=${voiceSource}`);
-  
-  // ✅ 文字清理：處理換行、特殊字符等
+  // ✅ 文字清理
   const originalContent = content;
-  const cleanedContent = content
-    .replace(/\r\n/g, '，')     // Windows 換行 → 逗號
-    .replace(/\n/g, '，')       // Unix 換行 → 逗號
-    .replace(/\t/g, ' ')        // Tab → 空格
-    .replace(/\s+/g, ' ')       // 多個空格 → 單個空格
-    .replace(/[“”]/g, '"')      // 智能引號 → 普通引號
-    .replace(/[‘’]/g, "'")      // 智能單引號 → 普通單引號
-    .trim();
+  const cleanedContent = cleanTTSContent(content);
   
+  console.log(`\n[KreadoAI TTS] ========== TTS 請求開始 ==========`);
   console.log(`[KreadoAI TTS] 原始文字: "${originalContent}"`);
   console.log(`[KreadoAI TTS] 清理後文字: "${cleanedContent}"`);
   console.log(`[KreadoAI TTS] 原始長度: ${originalContent.length} 字符`);
   console.log(`[KreadoAI TTS] 清理後長度: ${cleanedContent.length} 字符`);
   console.log(`[KreadoAI TTS] UTF-8 字節: ${Buffer.byteLength(cleanedContent, 'utf8')} bytes`);
+  console.log(`[KreadoAI TTS] 語言: ${language}, voiceId: ${voiceId}, voiceSource: ${voiceSource}`);
+  
+  if (cleanedContent.length === 0) {
+    console.error(`[KreadoAI TTS] ❌ 清理後內容為空`);
+    throw new Error("內容清理後為空");
+  }
+  
+  // ✅ 計算預期最小時長
+  const expectedMinDuration = estimateMinDuration(cleanedContent, language);
+  console.log(`[KreadoAI TTS] 預期最小時長: ${expectedMinDuration}ms (${(expectedMinDuration/1000).toFixed(1)}秒)`);
   
   const requestBody = {
     languageId: langConfig.languageId,
-    content: cleanedContent,  // ✅ 使用清理後的內容
+    content: cleanedContent,
     voiceId: voiceId,
     voiceSource: voiceSource,
-    voiceClone: isCloneVoice ? 1 : 0,  // 克隆語音需要設置為 1
+    voiceClone: isCloneVoice ? 1 : 0,
   };
   
-  console.log(`[KreadoAI TTS] 請求參數: voiceClone=${requestBody.voiceClone}`);
+  console.log(`[KreadoAI TTS] 請求體:`, JSON.stringify(requestBody));
   
-  try {
-    const response = await fetch(KREADO_TTS_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",  // ✅ 明確 UTF-8 編碼
-        "apiToken": KREADO_CONFIG.apiKey,
-      },
-      body: JSON.stringify(requestBody),
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`KreadoAI TTS API 調用失敗: ${response.status} - ${errorText}`);
+  // ✅ 帶重試的 API 調用
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[KreadoAI TTS] 嘗試 ${attempt}/${maxRetries}...`);
+      
+      const response = await fetch(KREADO_TTS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "apiToken": KREADO_CONFIG.apiKey,
+        },
+        body: JSON.stringify(requestBody),
+      });
+      
+      console.log(`[KreadoAI TTS] HTTP 狀態: ${response.status}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+      
+      const data: KreadoTTSResponse = await response.json();
+      
+      console.log(`[KreadoAI TTS] API 響應碼: ${data.code}`);
+      console.log(`[KreadoAI TTS] API 消息: ${data.message}`);
+      
+      if (data.code !== "200") {
+        throw new Error(`API 錯誤: ${data.code} - ${data.message}`);
+      }
+      
+      const ttsResult = data.data?.textToSpeech;
+      
+      if (!ttsResult || !ttsResult.audioUrl) {
+        throw new Error("API 響應中沒有 audioUrl");
+      }
+      
+      const audioUrl = ttsResult.audioUrl;
+      const apiDuration = ttsResult.duration || 0;
+      const apiDurationMs = ttsResult.durationMs || apiDuration * 1000;
+      
+      console.log(`[KreadoAI TTS] ✅ 音頻 URL: ${audioUrl.substring(0, 80)}...`);
+      console.log(`[KreadoAI TTS] ✅ API 返回時長: ${apiDuration}秒 (${apiDurationMs}ms)`);
+      
+      // ✅ 關鍵：驗證時長
+      if (apiDurationMs > 0 && apiDurationMs < expectedMinDuration * 0.5) {
+        // 時長不到預期的一半，可能有問題
+        console.warn(`[KreadoAI TTS] ⚠️ 時長異常！預期 >${expectedMinDuration}ms，實際 ${apiDurationMs}ms`);
+        
+        if (attempt < maxRetries) {
+          console.log(`[KreadoAI TTS] 重試中...`);
+          await new Promise(r => setTimeout(r, 1000 * attempt));  // 遞增延遲
+          continue;
+        } else {
+          console.warn(`[KreadoAI TTS] ⚠️ 已達最大重試次數，使用當前結果`);
+        }
+      }
+      
+      console.log(`[KreadoAI TTS] ========== TTS 請求完成 ==========\n`);
+      
+      return {
+        audioUrl: audioUrl,
+        duration: apiDuration,
+      };
+      
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`[KreadoAI TTS] ❌ 嘗試 ${attempt} 失敗:`, lastError.message);
+      
+      if (attempt < maxRetries) {
+        const delay = 1000 * attempt;
+        console.log(`[KreadoAI TTS] 等待 ${delay}ms 後重試...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
     }
-    
-    const data: KreadoTTSResponse = await response.json();
-    
-    // 詳細記錄 API 響應
-    console.log(`[KreadoAI TTS] API 響應完整:`, JSON.stringify(data, null, 2));
-    
-    if (data.code !== "200") {
-      throw new Error(`KreadoAI TTS 錯誤: ${data.message}`);
-    }
-    
-    const audioUrl = data.data.textToSpeech.audioUrl;
-    let duration = data.data.textToSpeech.duration;
-    const durationMs = data.data.textToSpeech.durationMs;
-    
-    console.log(`[KreadoAI TTS] 成功生成語音: ${audioUrl}`);
-    console.log(`[KreadoAI TTS] API 返回時長: ${duration}秒 (${durationMs}ms)`);
-    
-    // 新增：驗證音頻時長，如果太短則標記為需要修復
-    if (duration < 3) {
-      console.warn(`[KreadoAI TTS] 警告：API 返回的時長過短 (${duration}秒)，可能需要修復`);
-    }
-    
-    return {
-      audioUrl: audioUrl,
-      duration: duration,
-    };
-  } catch (error) {
-    console.error("[KreadoAI TTS] 錯誤:", error);
-    throw error;
   }
+  
+  console.error(`[KreadoAI TTS] ❌ 所有嘗試都失敗`);
+  throw lastError || new Error("未知錯誤");
 }
 
 /**
