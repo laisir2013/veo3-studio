@@ -295,7 +295,8 @@ export async function generateSpeechWithKreado(
   }
   
   console.log(`[KreadoAI TTS] 生成語音: language=${language}, voiceId=${voiceId}, voiceSource=${voiceSource}`);
-  console.log(`[KreadoAI TTS] 文字內容: ${content.substring(0, 50)}...`);
+  console.log(`[KreadoAI TTS] 文字內容完整: "${content}"`);
+  console.log(`[KreadoAI TTS] 文字長度: ${content.length} 字符`);
   
   const requestBody = {
     languageId: langConfig.languageId,
@@ -324,15 +325,19 @@ export async function generateSpeechWithKreado(
     
     const data: KreadoTTSResponse = await response.json();
     
+    // 詳細記錄 API 響應
+    console.log(`[KreadoAI TTS] API 響應完整:`, JSON.stringify(data, null, 2));
+    
     if (data.code !== "200") {
       throw new Error(`KreadoAI TTS 錯誤: ${data.message}`);
     }
     
     const audioUrl = data.data.textToSpeech.audioUrl;
     let duration = data.data.textToSpeech.duration;
+    const durationMs = data.data.textToSpeech.durationMs;
     
     console.log(`[KreadoAI TTS] 成功生成語音: ${audioUrl}`);
-    console.log(`[KreadoAI TTS] API 返回時長: ${duration}秒`);
+    console.log(`[KreadoAI TTS] API 返回時長: ${duration}秒 (${durationMs}ms)`);
     
     // 新增：驗證音頻時長，如果太短則標記為需要修復
     if (duration < 3) {

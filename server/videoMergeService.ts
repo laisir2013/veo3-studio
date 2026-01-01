@@ -327,31 +327,49 @@ async function downloadFile(url: string, dest: string) {
 
 /**
  * 輔助：檢測並修復音頻時長（確保旁白音頻是 8 秒）
+ * 使用鏈式 atempo 濾鏡突破 0.5 倍速限制
  */
 async function ensureAudioDuration(audioPath: string, targetDuration: number = 8): Promise<void> {
   try {
     // 使用 ffprobe 檢測實際時長
-    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1:noprint_wrappers=1 "${audioPath}"`);
+    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`);
     const actualDuration = parseFloat(stdout.trim());
     
     console.log(`[Audio] 檢測音頻時長: ${actualDuration}秒 (目標: ${targetDuration}秒)`);
     
+    if (isNaN(actualDuration) || actualDuration <= 0) {
+      console.warn(`[Audio] ⚠️ 無法檢測音頻時長，跳過修復`);
+      return;
+    }
+    
     if (actualDuration < targetDuration - 0.5) {
       // 如果實際時長少於目標時長 0.5 秒，進行拉伸
-      const tempo = actualDuration / targetDuration; // 計算速度因子
+      const ratio = targetDuration / actualDuration; // 需要拉伸的倍數
       const tempPath = audioPath + '.temp.mp3';
       
-      console.log(`[Audio] ⚠️ 音頻過短，進行拉伸修復 (速度因子: ${tempo.toFixed(3)})`);
+      console.log(`[Audio] ⚠️ 音頻過短 (${actualDuration.toFixed(2)}s)，需要拉伸 ${ratio.toFixed(2)} 倍`);
       
-      // 使用 atempo 濾鏡拉伸音頻
-      const stretchCmd = `ffmpeg -y -i "${audioPath}" -filter:a "atempo=${tempo.toFixed(3)}" "${tempPath}"`;
-      await execAsync(stretchCmd, { timeout: 60000 });
+      // 構建鏈式 atempo 濾鏡
+      // atempo 只支持 0.5-2.0 範圍，需要鏈式調用
+      // 例如：要拉伸 8 倍，需要 atempo=0.5,atempo=0.5,atempo=0.5 (0.5^3 = 0.125，即 8 倍拉伸)
+      const atempoFilters = buildAtempoChain(ratio);
+      
+      console.log(`[Audio] 使用濾鏡鏈: ${atempoFilters}`);
+      
+      // 使用鏈式 atempo 濾鏡拉伸音頻
+      const stretchCmd = `ffmpeg -y -i "${audioPath}" -filter:a "${atempoFilters}" -ar 44100 "${tempPath}"`;
+      await execAsync(stretchCmd, { timeout: 120000 });
+      
+      // 驗證拉伸後的時長
+      const { stdout: newDurationStr } = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${tempPath}"`);
+      const newDuration = parseFloat(newDurationStr.trim());
+      console.log(`[Audio] 拉伸後時長: ${newDuration.toFixed(2)}秒`);
       
       // 替換原始文件
       fs.unlinkSync(audioPath);
       fs.renameSync(tempPath, audioPath);
       
-      console.log(`[Audio] ✅ 音頻拉伸完成，新時長應為 ${targetDuration}秒`);
+      console.log(`[Audio] ✅ 音頻拉伸完成`);
     } else {
       console.log(`[Audio] ✅ 音頻時長正常，無需修復`);
     }
@@ -359,6 +377,37 @@ async function ensureAudioDuration(audioPath: string, targetDuration: number = 8
     console.warn(`[Audio] 警告：無法檢測/修復音頻時長:`, error);
     // 不拋出錯誤，繼續處理
   }
+}
+
+/**
+ * 構建鏈式 atempo 濾鏡字符串
+ * atempo 範圍是 0.5-2.0，超出範圍需要鏈式調用
+ * @param ratio 目標拉伸倍數（>1 表示拉長，<1 表示縮短）
+ */
+function buildAtempoChain(ratio: number): string {
+  const filters: string[] = [];
+  let remaining = ratio;
+  
+  // 拉伸（ratio > 1）：需要減慢速度，使用 atempo < 1
+  // 每次最多減慢到 0.5 倍速（即拉伸 2 倍）
+  while (remaining > 1.01) {
+    if (remaining >= 2) {
+      filters.push('atempo=0.5');
+      remaining /= 2;
+    } else {
+      // 最後一個濾鏡處理剩餘部分
+      const tempo = 1 / remaining;
+      filters.push(`atempo=${tempo.toFixed(4)}`);
+      remaining = 1;
+    }
+  }
+  
+  // 如果沒有濾鏡（ratio ≈ 1），返回一個不改變速度的濾鏡
+  if (filters.length === 0) {
+    return 'atempo=1.0';
+  }
+  
+  return filters.join(',');
 }
 
 /**
