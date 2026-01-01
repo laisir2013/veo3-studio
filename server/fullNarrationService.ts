@@ -112,9 +112,10 @@ async function getTimestampsWithWhisper(
 ): Promise<{ text: string; start: number; end: number }[]> {
   console.log(`[FullNarration] 使用 Whisper 分析音頻時間戳...`);
   
+  // 使用 VectorEngine API 端點（支持 Whisper）
   const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    apiKey: process.env.VECTORENGINE_API_KEY || process.env.OPENAI_API_KEY,
+    baseURL: process.env.VECTORENGINE_BASE_URL || "https://api.vectorengine.ai/v1",
   });
   
   // 讀取音頻文件
@@ -330,7 +331,7 @@ export async function generateFullNarration(
     // 5. 獲取時間戳
     let segmentsWithTime: SegmentNarration[];
     
-    if (useWhisper && process.env.OPENAI_API_KEY) {
+    if (useWhisper && (process.env.VECTORENGINE_API_KEY || process.env.OPENAI_API_KEY)) {
       try {
         // 使用 Whisper 獲取精確時間戳
         const timestamps = await getTimestampsWithWhisper(
