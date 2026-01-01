@@ -13,7 +13,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
-import fetch from "node-fetch";
+// Node.js 18+ 內置 fetch，不需要 node-fetch
 import OpenAI from "openai";
 
 const execAsync = promisify(exec);
