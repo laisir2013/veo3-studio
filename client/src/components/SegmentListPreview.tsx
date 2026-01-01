@@ -85,6 +85,7 @@ export interface SegmentData {
   voiceActorId?: string;
   mediaType?: "image" | "video"; // 混合模式：圖片或視頻類型
   generatingStatus?: string; // 生成狀態詳情（如「正在生成圖片 1/3」）
+  source?: "primary" | "manus"; // 生成來源（primary=系統API, manus=Manus後備）
 }
 
 interface SegmentListPreviewProps {
@@ -286,6 +287,11 @@ function SegmentGridOverview({
                           </div>
                         )}
                       </>
+                    )}
+                    {segment.source === "manus" && (
+                      <div className="text-xs text-purple-400 font-medium mt-1">
+                        🤖 由 MANUS 生成
+                      </div>
                     )}
                   </div>
                 </TooltipContent>
@@ -493,6 +499,12 @@ function SegmentDetailRow({
             {segment.status === "generating" && segment.generatingStatus && (
               <div className="text-xs text-yellow-400 truncate max-w-[300px]" title={segment.generatingStatus}>
                 {segment.generatingStatus}
+              </div>
+            )}
+            {/* ✅ 顯示 Manus 來源標記 */}
+            {segment.source === "manus" && (
+              <div className="text-xs text-purple-400 font-medium">
+                🤖 由 MANUS 生成
               </div>
             )}
           </div>
