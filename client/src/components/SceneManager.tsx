@@ -19,11 +19,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+export interface NarrationSegment {
+  segmentId: number;
+  text: string;
+  audioUrl?: string;
+}
+
 export interface Scene {
   id: string;
   description: string;
   imagePrompt?: string;
   narration?: string;
+  narrationSegments?: NarrationSegment[];
   imageUrl?: string;
   videoUrl?: string;
   audioUrl?: string;

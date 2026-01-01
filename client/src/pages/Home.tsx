@@ -43,7 +43,9 @@ import { LanguageSelector, type Language, LANGUAGES } from "@/components/Languag
 import { SegmentGrid, type Segment } from "@/components/SegmentPreviewCard";
 import { SegmentListPreview, type SegmentData } from "@/components/SegmentListPreview";
 import { SeoPanel, type SeoResult } from "@/components/SeoPanel";
-import { SceneManager, type Scene } from "@/components/SceneManager";
+import { SceneManager, type Scene, type NarrationSegment } from "@/components/SceneManager";
+import { ScriptUploader } from "@/components/ScriptUploader";
+import { type ParsedScript } from "@/lib/scriptParser";
 import { MediaSettings, type MediaSettingsState } from "@/components/MediaSettings";
 import { VoiceCloneCard } from "@/components/VoiceCloneCard";
 import { NarrationScriptEditor } from "@/components/NarrationScriptEditor";
@@ -991,6 +993,36 @@ Scene description: Summarize the content, leave a lasting impression, and encour
                 </div>
               </CardContent>
             </Card>
+
+            {/* 上傳腳本 */}
+            <ScriptUploader
+              segmentCount={calculateSegments(selectedDuration)}
+              disabled={createTask.isPending || !!longVideoTaskId}
+              onScriptParsed={(script: ParsedScript) => {
+                // 設置視頻標題
+                if (script.title) {
+                  setVideoTitle(script.title);
+                }
+                // 將解析的片段轉換為 Scene 格式
+                const scenes: Scene[] = script.segments.map((seg, index) => ({
+                  id: `scene_${Date.now()}_${index}`,
+                  description: seg.description,
+                  narration: seg.narration,
+                  narrationSegments: seg.narration ? [{
+                    segmentId: index + 1,
+                    text: seg.narration,
+                  }] : undefined,
+                  status: "pending" as const,
+                }));
+                setCustomScenes(scenes);
+                // 生成故事大綱（合併所有旁白）
+                const outline = script.segments.map((seg, index) => 
+                  `【片段 ${index + 1}】\n${seg.narration || seg.description}`
+                ).join('\n\n');
+                setStory(outline);
+                toast.success(`已導入 ${script.segments.length} 個片段的腳本`);
+              }}
+            />
 
             {/* 語言選擇 */}
             <LanguageSelector
