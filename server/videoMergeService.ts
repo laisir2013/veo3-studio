@@ -1,4 +1,4 @@
-import { storagePut, getPublicUrl } from "./storage";
+import { storagePut } from "./storage";
 import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
@@ -36,6 +36,26 @@ export interface MergeResult {
 
 // 任務狀態管理
 const mergeTasks = new Map<string, MergeResult>();
+
+// BGM 選項定義
+export const BGM_OPTIONS = [
+  { id: "none", name: "無背景音樂", url: "" },
+  { id: "happy", name: "歡快", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/happy.mp3" },
+  { id: "sad", name: "憂傷", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/sad.mp3" },
+  { id: "epic", name: "史詩", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/epic.mp3" },
+  { id: "lofi", name: "Lofi", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/lofi.mp3" },
+];
+
+// 字幕樣式定義
+export const SUBTITLE_STYLES = [
+  { id: "default", name: "默認", style: "FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1" },
+  { id: "white", name: "白底黑邊", style: "FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2" },
+  { id: "black", name: "黑底白邊", style: "FontSize=24,PrimaryColour=&H00000000,OutlineColour=&H00FFFFFF,BorderStyle=1,Outline=2" },
+  { id: "yellow", name: "黃底黑邊", style: "FontSize=24,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2" },
+];
+
+export type BgmType = "none" | "happy" | "sad" | "epic" | "lofi";
+export type SubtitleStyle = "default" | "white" | "black" | "yellow";
 
 /**
  * 獲取合併任務狀態
@@ -129,12 +149,10 @@ async function processMerge(params: any, taskId: string) {
     }
 
     // 2. 處理背景音樂
-    let finalInput = "";
     const listPath = path.join(tempDir, "list.txt");
     const listContent = normalizedFiles.map(f => `file '${f}'`).join("\n");
     fs.writeFileSync(listPath, listContent);
 
-    const mergedPath = path.join(tempDir, "merged_temp.mp4");
     const finalPath = path.join(tempDir, "final_output.mp4");
 
     // 3. 執行合併
@@ -197,8 +215,8 @@ async function processMerge(params: any, taskId: string) {
 async function downloadFile(url: string, dest: string) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`下載失敗: ${url}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(dest, buffer);
+  const arrayBuffer = await response.arrayBuffer();
+  fs.writeFileSync(dest, Buffer.from(arrayBuffer));
 }
 
 /**
@@ -237,9 +255,10 @@ async function uploadMergedVideo(filePath: string): Promise<string | null> {
     const dateStr = new Date().toISOString().split('T')[0];
     const key = `videos/merged/${dateStr}/${fileName}`;
     
-    const success = await storagePut(key, fileBuffer, "video/mp4");
-    return success ? getPublicUrl(key) : null;
+    const result = await storagePut(key, fileBuffer, "video/mp4");
+    return result.url;
   } catch (error) {
+    console.error("[MergeTask] 上傳失敗:", error);
     return null;
   }
 }
