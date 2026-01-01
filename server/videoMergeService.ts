@@ -13,19 +13,21 @@ const VIDEO_API_BASE = process.env.VIDEO_API_BASE || "https://api.veo3.ai/v1";
 const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME || "postudio-videos";
 
 // 標準化視頻參數（統一規格）
-// 優化配置：降低解析度和使用 ultrafast 預設以減少內存使用 (Render 免費方案 512MB 限制)
+// 高質量配置（適用於 Render Standard 方案 2GB RAM）
 const NORMALIZE_CONFIG = {
-  width: 854,
-  height: 480,
-  fps: 24,
+  width: 1280,
+  height: 720,
+  fps: 30,
   videoCodec: "libx264",
   audioCodec: "aac",
   audioSampleRate: 44100,
   audioChannels: 2,
-  audioBitrate: "128k",
+  audioBitrate: "192k",
   pixelFormat: "yuv420p",
-  crf: 28,
-  preset: "ultrafast",
+  crf: 23,
+  preset: "fast",
+  maxrate: "2M",
+  bufsize: "4M",
 };
 
 // 重試配置
@@ -906,38 +908,38 @@ export async function convertImageToVideoLocal(
     if (hasAudio) {
       // 有音頻：使用音頻時長作為視頻時長
       // 使用 loop 讓圖片循環，shortest 讓視頻在音頻結束時停止
-      // 優化：降低解析度和使用 ultrafast 預設以減少內存使用
+      // 高質量配置（適用於 2GB RAM）
       cmd = [
         "ffmpeg", "-y",
         "-loop", "1",
         "-i", `"${imagePath}"`,
         "-i", `"${audioPath}"`,
         "-c:v", "libx264",
-        "-preset", "ultrafast",
+        "-preset", "fast",
         "-tune", "stillimage",
         "-c:a", "aac",
-        "-b:a", "128k",
+        "-b:a", "192k",
         "-pix_fmt", "yuv420p",
-        "-vf", "scale=854:-2,fps=24",
-        "-maxrate", "1M",
-        "-bufsize", "512k",
+        "-vf", "scale=1280:-2,fps=30",
+        "-maxrate", "2M",
+        "-bufsize", "4M",
         "-shortest",
         `"${outputPath}"`
       ].join(" ");
     } else {
       // 無音頻：使用指定時長
-      // 優化：降低解析度和使用 ultrafast 預設以減少內存使用
+      // 高質量配置（適用於 2GB RAM）
       cmd = [
         "ffmpeg", "-y",
         "-loop", "1",
         "-i", `"${imagePath}"`,
         "-c:v", "libx264",
-        "-preset", "ultrafast",
+        "-preset", "fast",
         "-tune", "stillimage",
         "-pix_fmt", "yuv420p",
-        "-vf", "scale=854:-2,fps=24",
-        "-maxrate", "1M",
-        "-bufsize", "512k",
+        "-vf", "scale=1280:-2,fps=30",
+        "-maxrate", "2M",
+        "-bufsize", "4M",
         "-t", String(duration),
         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
         "-shortest",
