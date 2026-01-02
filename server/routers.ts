@@ -699,6 +699,9 @@ export const appRouter = router({
         audioUrls: z.array(z.string()).optional(),
         // 新增：完整旁白生成參數
         useFullNarration: z.boolean().default(true), // 默認啟用完整旁白生成
+        // 新增：字幕參數
+        enableSubtitles: z.boolean().default(false), // 是否啟用字幕燒錄
+        fullNarrationText: z.string().optional(), // 完整旁白文字（用於字幕）
       }))
       .mutation(async ({ ctx, input }) => {
         const task = getLongVideoTask(input.taskId);
@@ -760,6 +763,9 @@ export const appRouter = router({
           voiceActorId: voiceActorId,
           language: language,
           useFullNarration: input.useFullNarration !== false, // 默認啟用
+          // 📝 字幕參數
+          enableSubtitles: input.enableSubtitles || false,
+          fullNarrationText: input.fullNarrationText,
         }, mergeTaskId);
 
         console.log(`[LongVideo ${taskIdForLog}] 🚀 已啟動異步合併任務: ${mergeTaskId}`);

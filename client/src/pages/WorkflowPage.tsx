@@ -935,6 +935,8 @@ export default function WorkflowPage() {
         originalVolume: videoVolume,
         videoUrls: completedVideoUrls, // 傳遞片段 URL
         audioUrls: completedAudioUrls, // ✅ 新增：傳遞旁白音頻 URL
+        enableSubtitles: true, // ✅ 啟用字幕燒錄
+        fullNarrationText: fullNarration, // ✅ 完整旁白文字
       });
 
       console.log("[Merge Result]", result);

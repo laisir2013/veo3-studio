@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { generateFullNarration, type SegmentNarration } from "./fullNarrationService";
 import type { VoiceLanguage } from "./videoConfig";
+import OpenAI from "openai";
 
 const execAsync = promisify(exec);
 
@@ -24,6 +25,122 @@ export const NORMALIZE_CONFIG = {
   maxrate: "2M",
   bufsize: "4M"
 };
+
+/**
+ * 使用 Whisper 獲取音頻時間戳
+ */
+async function getWhisperTimestamps(audioPath: string): Promise<{ text: string; start: number; end: number }[]> {
+  console.log(`[Subtitle] 使用 Whisper 分析音頻時間戳...`);
+  
+  const openai = new OpenAI({
+    apiKey: process.env.VECTOR_ENGINE_API_KEY || process.env.OPENAI_API_KEY,
+    baseURL: process.env.VECTOR_ENGINE_BASE_URL || "https://api.vectorengine.ai/v1",
+  });
+  
+  const audioFile = fs.createReadStream(audioPath);
+  
+  try {
+    const transcription = await openai.audio.transcriptions.create({
+      file: audioFile,
+      model: "whisper-1",
+      response_format: "verbose_json",
+      timestamp_granularities: ["word"],
+    });
+    
+    const words = (transcription as any).words || [];
+    console.log(`[Subtitle] Whisper 轉錄完成，共 ${words.length} 個字詞`);
+    
+    return words.map((w: any) => ({
+      text: w.word,
+      start: w.start,
+      end: w.end,
+    }));
+  } catch (error) {
+    console.error(`[Subtitle] Whisper 分析失敗:`, error);
+    throw error;
+  }
+}
+
+/**
+ * 將字詞分組為字幕行（每行 8-10 個字）
+ */
+function groupWordsIntoSubtitles(words: { text: string; start: number; end: number }[], charsPerLine: number = 9): { text: string; start: number; end: number }[] {
+  const subtitles: { text: string; start: number; end: number }[] = [];
+  let currentText = "";
+  let currentStart = 0;
+  let currentEnd = 0;
+  
+  for (const word of words) {
+    if (currentText === "") {
+      currentStart = word.start;
+    }
+    
+    currentText += word.text;
+    currentEnd = word.end;
+    
+    // 當累積字數達到目標時，創建新的字幕行
+    if (currentText.length >= charsPerLine) {
+      subtitles.push({
+        text: currentText.trim(),
+        start: currentStart,
+        end: currentEnd,
+      });
+      currentText = "";
+    }
+  }
+  
+  // 處理剩餘的文字
+  if (currentText.trim()) {
+    subtitles.push({
+      text: currentText.trim(),
+      start: currentStart,
+      end: currentEnd,
+    });
+  }
+  
+  return subtitles;
+}
+
+/**
+ * 生成 ASS 字幕文件
+ * 樣式：11px 黑字白框，置中下方
+ */
+function generateAssSubtitle(subtitles: { text: string; start: number; end: number }[], outputPath: string): void {
+  // ASS 文件頭部
+  const header = `[Script Info]
+Title: Generated Subtitles
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,22,&H00000000,&H000000FF,&H00FFFFFF,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,30,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  
+  // 轉換時間格式: 秒 -> h:mm:ss.cc
+  const formatTime = (seconds: number): string => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const cs = Math.floor((seconds % 1) * 100);
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
+  };
+  
+  // 生成字幕事件
+  const events = subtitles.map(sub => {
+    const start = formatTime(sub.start);
+    const end = formatTime(sub.end);
+    return `Dialogue: 0,${start},${end},Default,,0,0,0,,${sub.text}`;
+  }).join('\n');
+  
+  fs.writeFileSync(outputPath, header + events);
+  console.log(`[Subtitle] ASS 字幕文件已生成: ${outputPath}`);
+}
 
 export interface MergeResult {
   success: boolean;
@@ -160,6 +277,8 @@ export async function mergeVideos(params: {
   voiceActorId?: string;      // 配音員 ID
   language?: VoiceLanguage;   // 語言
   useFullNarration?: boolean; // 是否使用完整旁白生成
+  fullNarrationText?: string; // 完整旁白文字（用於字幕）
+  enableSubtitles?: boolean;  // 是否啟用字幕燒錄
 }): Promise<MergeResult> {
   const taskId = params.taskId || `merge_${Date.now()}`;
   
@@ -200,7 +319,9 @@ async function processMerge(params: any, taskId: string) {
     narrationTexts,
     voiceActorId,
     language,
-    useFullNarration = false
+    useFullNarration = false,
+    fullNarrationText,
+    enableSubtitles = false
   } = params;
   const tempDir = path.join("/tmp", `veo3-merge-${taskId}`);
   
@@ -430,10 +551,62 @@ async function processMerge(params: any, taskId: string) {
       console.log(`[MergeTask] 執行音頻混合命令...`);
       await execAsync(mergeCmd, { timeout: 600000 }); // 10 分鐘超時
     }
+    
+    // 5. 字幕燒錄（如果啟用）
+    let finalOutputPath = finalPath;
+    if (enableSubtitles && fullNarrationUrl) {
+      console.log(`[MergeTask] 開始字幕燒錄...`);
+      updateMergeTaskStatus(taskId, { 
+        success: false, 
+        status: "processing", 
+        progress: 85, 
+        taskId,
+        currentStep: "📝 正在生成字幕..." 
+      });
+      
+      try {
+        // 下載旁白音頻（如果還沒下載）
+        const narrationPath = path.join(tempDir, "full_narration.mp3");
+        if (!fs.existsSync(narrationPath)) {
+          await downloadFileWithRetry(fullNarrationUrl, narrationPath, 3);
+        }
+        
+        // 使用 Whisper 獲取時間戳
+        const words = await getWhisperTimestamps(narrationPath);
+        
+        // 將字詞分組為字幕行（每行 8-10 個字）
+        const subtitles = groupWordsIntoSubtitles(words, 9);
+        console.log(`[MergeTask] 生成 ${subtitles.length} 行字幕`);
+        
+        // 生成 ASS 字幕文件
+        const assPath = path.join(tempDir, "subtitles.ass");
+        generateAssSubtitle(subtitles, assPath);
+        
+        // 燒錄字幕到視頻
+        const subtitledPath = path.join(tempDir, "final_with_subtitles.mp4");
+        const subtitleCmd = [
+          "ffmpeg", "-y",
+          "-i", `"${finalPath}"`,
+          "-vf", `"ass=${assPath.replace(/\\/g, '/')}"`,
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+          "-c:a", "copy",
+          `"${subtitledPath}"`
+        ].join(" ");
+        
+        console.log(`[MergeTask] 執行字幕燒錄命令...`);
+        await execAsync(subtitleCmd, { timeout: 600000 });
+        
+        finalOutputPath = subtitledPath;
+        console.log(`[MergeTask] ✅ 字幕燒錄完成`);
+      } catch (subError: any) {
+        console.error(`[MergeTask] 字幕燒錄失敗:`, subError);
+        // 字幕失敗不影響主流程，繼續使用無字幕的視頻
+      }
+    }
 
-    // 4. 上傳結果
+    // 6. 上傳結果
     updateMergeTaskStatus(taskId, { success: false, status: "processing", progress: 90, taskId });
-    const videoUrl = await uploadMergedVideo(finalPath);
+    const videoUrl = await uploadMergedVideo(finalOutputPath);
 
     if (videoUrl) {
       updateMergeTaskStatus(taskId, { 
