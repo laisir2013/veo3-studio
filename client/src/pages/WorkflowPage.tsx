@@ -1925,14 +1925,14 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </Button>
               </div>
 
-              {subtitles.length > 0 && (
+              {subtitles && subtitles.length > 0 && (
                 <div className="space-y-2 max-h-[300px] overflow-y-auto">
                   {subtitles.map((sub) => (
-                    <div key={sub.segmentId} className="p-2 bg-zinc-800/50 rounded-lg">
-                      <Badge variant="secondary" className="mb-1">片段 #{sub.segmentId}</Badge>
-                      {sub.items.map((item, i) => (
+                    <div key={sub?.segmentId || Math.random()} className="p-2 bg-zinc-800/50 rounded-lg">
+                      <Badge variant="secondary" className="mb-1">片段 #{sub?.segmentId || '?'}</Badge>
+                      {sub?.items && Array.isArray(sub.items) && sub.items.map((item, i) => (
                         <p key={i} className="text-sm">
-                          [{item.start}s - {item.end}s] {item.text}
+                          [{item?.start || 0}s - {item?.end || 0}s] {item?.text || ''}
                         </p>
                       ))}
                     </div>
