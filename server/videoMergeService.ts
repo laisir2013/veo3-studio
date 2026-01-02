@@ -10,6 +10,21 @@ import OpenAI from "openai";
 
 const execAsync = promisify(exec);
 
+/**
+ * 檢測視頻文件是否包含音頻軌道
+ */
+async function hasAudioTrack(videoPath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${videoPath}"`
+    );
+    return stdout.trim() === 'audio';
+  } catch (error) {
+    console.log(`[MergeTask] 視頻無音頻軌道或檢測失敗: ${videoPath}`);
+    return false;
+  }
+}
+
 // 視頻標準化配置 - 針對 2GB RAM 優化的高質量設置
 export const NORMALIZE_CONFIG = {
   width: 1280,
@@ -541,6 +556,10 @@ async function processMerge(params: any, taskId: string) {
     const narrationVol = narrationVolume / 100;
     const bgmVol = bgmVolume / 100;
     
+    // 檢測合併後的視頻是否有音頻軌道
+    const videoHasAudio = await hasAudioTrack(mergedVideoPath);
+    console.log(`[MergeTask] 視頻音頻軌道檢測: ${videoHasAudio ? '有' : '無'}`);
+    
     if (fullNarrationUrl) {
       // 下載完整旁白音頻
       const narrationPath = path.join(tempDir, "full_narration.mp3");
@@ -552,45 +571,89 @@ async function processMerge(params: any, taskId: string) {
         const bgmPath = path.join(tempDir, "bgm.mp3");
         await downloadFileWithRetry(bgmUrl, bgmPath, 3);
         
-        mergeCmd = [
-          "ffmpeg", "-y",
-          "-i", `"${mergedVideoPath}"`,
-          "-i", `"${narrationPath}"`,
-          "-stream_loop", "-1", "-i", `"${bgmPath}"`,
-          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[2:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a2];[a0][a1][a2]amix=inputs=3:duration=first:dropout_transition=2[aout]"`,
-          "-map", "0:v", "-map", '"[aout]"',
-          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
-          "-shortest", `"${finalPath}"`
-        ].join(" ");
+        if (videoHasAudio) {
+          // 視頻有音頻：混合視頻原音 + 旁白 + BGM
+          mergeCmd = [
+            "ffmpeg", "-y",
+            "-i", `"${mergedVideoPath}"`,
+            "-i", `"${narrationPath}"`,
+            "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+            "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[2:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a2];[a0][a1][a2]amix=inputs=3:duration=first:dropout_transition=2[aout]"`,
+            "-map", "0:v", "-map", '"[aout]"',
+            "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+            "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+            "-shortest", `"${finalPath}"`
+          ].join(" ");
+        } else {
+          // 視頻無音頻：只混合旁白 + BGM
+          mergeCmd = [
+            "ffmpeg", "-y",
+            "-i", `"${mergedVideoPath}"`,
+            "-i", `"${narrationPath}"`,
+            "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+            "-filter_complex", `"[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[2:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+            "-map", "0:v", "-map", '"[aout]"',
+            "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+            "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+            "-shortest", `"${finalPath}"`
+          ].join(" ");
+        }
       } else {
         // 有旁白 + 無 BGM
-        mergeCmd = [
-          "ffmpeg", "-y",
-          "-i", `"${mergedVideoPath}"`,
-          "-i", `"${narrationPath}"`,
-          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
-          "-map", "0:v", "-map", '"[aout]"',
-          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
-          "-shortest", `"${finalPath}"`
-        ].join(" ");
+        if (videoHasAudio) {
+          // 視頻有音頻：混合視頻原音 + 旁白
+          mergeCmd = [
+            "ffmpeg", "-y",
+            "-i", `"${mergedVideoPath}"`,
+            "-i", `"${narrationPath}"`,
+            "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+            "-map", "0:v", "-map", '"[aout]"',
+            "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+            "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+            "-shortest", `"${finalPath}"`
+          ].join(" ");
+        } else {
+          // 視頻無音頻：只添加旁白
+          mergeCmd = [
+            "ffmpeg", "-y",
+            "-i", `"${mergedVideoPath}"`,
+            "-i", `"${narrationPath}"`,
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+            "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+            "-shortest", `"${finalPath}"`
+          ].join(" ");
+        }
       }
     } else if (bgmUrl) {
       // 無旁白 + 有 BGM
       const bgmPath = path.join(tempDir, "bgm.mp3");
       await downloadFileWithRetry(bgmUrl, bgmPath, 3);
       
-      mergeCmd = [
-        "ffmpeg", "-y",
-        "-i", `"${mergedVideoPath}"`,
-        "-stream_loop", "-1", "-i", `"${bgmPath}"`,
-        "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=1.0[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
-        "-map", "0:v", "-map", '"[aout]"',
-        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-        "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
-        "-shortest", `"${finalPath}"`
-      ].join(" ");
+      if (videoHasAudio) {
+        // 視頻有音頻：混合視頻原音 + BGM
+        mergeCmd = [
+          "ffmpeg", "-y",
+          "-i", `"${mergedVideoPath}"`,
+          "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=1.0[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+          "-map", "0:v", "-map", '"[aout]"',
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+          "-shortest", `"${finalPath}"`
+        ].join(" ");
+      } else {
+        // 視頻無音頻：只添加 BGM
+        mergeCmd = [
+          "ffmpeg", "-y",
+          "-i", `"${mergedVideoPath}"`,
+          "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+          "-map", "0:v", "-map", "1:a",
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+          "-shortest", `"${finalPath}"`
+        ].join(" ");
+      }
     } else {
       // 無旁白 + 無 BGM，直接複製
       fs.copyFileSync(mergedVideoPath, finalPath);
