@@ -300,13 +300,14 @@ async function processMerge(params: any, taskId: string) {
         await downloadFileWithRetry(bgmUrl, bgmPath, 3);
         const bgmVol = bgmVolume / 100;
         
+        // 重要：統一採樣率到 44100Hz，避免 BGM 和視頻音頻混合時出現變慢問題
         mergeCmd = [
           "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
           "-stream_loop", "-1", "-i", `"${bgmPath}"`,
-          "-filter_complex", `"[0:a]volume=1.0[a0];[1:a]volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=1.0[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
           "-map", "0:v", "-map", '"[aout]"',
           "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, "-shortest", `"${finalPath}"`
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate), "-shortest", `"${finalPath}"`
         ].join(" ");
       } else {
         mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`;
@@ -521,7 +522,7 @@ async function normalizeVideo(inputPath: string, audioPath: string, outputPath: 
   if (isImage) {
     // 圖片輸入：使用 -loop 1 將圖片轉換為 8 秒視頻
     if (hasAudio) {
-      // 有音頻：圖片 + 音頻 -> 視頻
+      // 有音頻：圖片 + 音頻 -> 視頻，統一採樣率
       cmd = [
         "ffmpeg", "-y", "-threads", "1",
         "-loop", "1", "-i", `"${inputPath}"`,  // 循環圖片
@@ -529,7 +530,7 @@ async function normalizeVideo(inputPath: string, audioPath: string, outputPath: 
         "-t", "8",                               // 限制時長為 8 秒
         "-vf", `"scale=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:force_original_aspect_ratio=decrease,pad=${NORMALIZE_CONFIG.width}:${NORMALIZE_CONFIG.height}:(ow-iw)/2:(oh-ih)/2,fps=${NORMALIZE_CONFIG.fps}"`,
         "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
-        "-c:a", NORMALIZE_CONFIG.audioCodec,
+        "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
         "-map", "0:v", "-map", "1:a",
         "-shortest",
         `"${outputPath}"`
@@ -560,24 +561,25 @@ async function normalizeVideo(inputPath: string, audioPath: string, outputPath: 
       
       if (hasVideoAudio) {
         // 視頻有音頻：混合原始音頻和旁白
+        // 重要：先統一採樣率到 44100Hz，避免不同採樣率混合導致音頻變慢
         cmd = [
           "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
-          "-filter_complex", `"[0:a]volume=${originalVol}[a0];[1:a]volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
+          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVol}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first[aout]"`,
           "-map", "0:v", "-map", '"[aout]"',
           "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
           "-r", String(NORMALIZE_CONFIG.fps),
           "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, `"${outputPath}"`
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate), `"${outputPath}"`
         ].join(" ");
       } else {
-        // 視頻無音頻：只使用旁白
+        // 視頻無音頻：只使用旁白，也要統一採樣率
         cmd = [
           "ffmpeg", "-y", "-threads", "1", "-i", `"${inputPath}"`, "-i", `"${audioPath}"`,
           "-map", "0:v", "-map", "1:a",
           "-s", `${NORMALIZE_CONFIG.width}x${NORMALIZE_CONFIG.height}`,
           "-r", String(NORMALIZE_CONFIG.fps),
           "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "32",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, "-shortest", `"${outputPath}"`
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate), "-shortest", `"${outputPath}"`
         ].join(" ");
       }
     } else {
