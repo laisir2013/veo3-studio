@@ -595,35 +595,59 @@ export default function WorkflowPage() {
       if (!content) return;
 
       try {
-        // 1. 解析完整旁白（支持多種格式）
         let narration = "";
-        const narrationPatterns = [
-          /## 完整旁白（粵語）\n([\s\S]*?)(?=\n##|$)/,
-          /## 完整旁白\n([\s\S]*?)(?=\n##|$)/,
-          /## 旁白\n([\s\S]*?)(?=\n##|$)/,
-        ];
-        for (const pattern of narrationPatterns) {
-          const match = content.match(pattern);
-          if (match) {
-            narration = match[1].trim();
-            break;
+        let newSegments: SegmentInfo[] = [];
+        
+        // 嘗試多種格式解析
+        
+        // 格式1: 用戶的格式 - 第1個8秒分鏡描述：(英文)
+        const userFormatMatches = Array.from(content.matchAll(/第(\d+)個8秒分鏡描述：[\s\S]*?\n([^\n第]+)/g));
+        
+        if (userFormatMatches.length > 0) {
+          // 用戶格式: 旁白在文件開頭，分鏡描述在後面
+          // 旁白是第一行到第一個分鏡描述之前的內容
+          const firstSegmentIndex = content.indexOf("第1個8秒分鏡描述");
+          if (firstSegmentIndex > 0) {
+            narration = content.substring(0, firstSegmentIndex).trim();
+          }
+          
+          newSegments = userFormatMatches.map((match) => ({
+            id: parseInt(match[1]),
+            description: match[2].trim(),
+            narration: "",
+            status: "pending" as const,
+          }));
+        } else {
+          // 格式2: 標準格式 - ## 完整旁白 + ### 片段 #n
+          const narrationPatterns = [
+            /## 完整旁白（粵語）\n([\s\S]*?)(?=\n##|$)/,
+            /## 完整旁白\n([\s\S]*?)(?=\n##|$)/,
+            /## 旁白\n([\s\S]*?)(?=\n##|$)/,
+          ];
+          for (const pattern of narrationPatterns) {
+            const match = content.match(pattern);
+            if (match) {
+              narration = match[1].trim();
+              break;
+            }
+          }
+          
+          const segmentMatches = Array.from(content.matchAll(/### 片段 #(\d+)\n- 描述：(.*?)(?=\n###|\n\n---|完整旁白|$)/gs));
+          
+          if (segmentMatches.length > 0) {
+            newSegments = segmentMatches.map((match) => ({
+              id: parseInt(match[1]),
+              description: match[2].trim(),
+              narration: "",
+              status: "pending" as const,
+            }));
           }
         }
         
-        // 2. 解析片段描述（支持多種格式）
-        const segmentMatches = Array.from(content.matchAll(/### 片段 #(\d+)\n- 描述：(.*?)(?=\n###|\n\n---|完整旁白|$)/gs));
-        
-        if (segmentMatches.length === 0) {
+        if (newSegments.length === 0) {
           toast.error("腳本格式不正確，請檢查文件內容");
           return;
         }
-
-        const newSegments: SegmentInfo[] = segmentMatches.map((match) => ({
-          id: parseInt(match[1]),
-          description: match[2].trim(),
-          narration: "", // 旁白是整段生成的，這裡留空
-          status: "pending" as const,
-        }));
 
         // 更新狀態
         if (narration) {
