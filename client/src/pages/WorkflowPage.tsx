@@ -844,16 +844,17 @@ export default function WorkflowPage() {
 
   // 步驟14：合併視頻（三層容錯機制）
   // 🔄 輪詢合併狀態的函數
-  // 根據視頻時長動態計算超時時間：基礎 5 分鐘 + 每分鐘視頻額外 1 分鐘
+  // 根據視頻時長動態計算超時時間：基礎 10 分鐘 + 每分鐘視頻額外 2 分鐘
   const pollMergeStatus = async (mergeTaskId: string): Promise<string | null> => {
     // 計算視頻總時長（秒）
     const videoDurationSeconds = selectedDuration || 24;
     const videoDurationMinutes = Math.ceil(videoDurationSeconds / 60);
     
-    // 動態計算超時時間：基礎 5 分鐘 + 每分鐘視頻額外 1 分鐘
-    // 24 秒視頻 = 5 + 1 = 6 分鐘
-    // 8 分鐘視頻 = 5 + 8 = 13 分鐘
-    const timeoutMinutes = 5 + videoDurationMinutes;
+    // 動態計算超時時間：基礎 10 分鐘 + 每分鐘視頻額外 2 分鐘
+    // 24 秒視頻 = 10 + 2 = 12 分鐘
+    // 8 分鐘視頻 = 10 + 16 = 26 分鐘
+    // 10 分鐘視頻 = 10 + 20 = 30 分鐘
+    const timeoutMinutes = 10 + (videoDurationMinutes * 2);
     const maxAttempts = Math.ceil(timeoutMinutes * 60 / 3); // 每 3 秒輪詢一次
     const pollInterval = 3000; // 每 3 秒輪詢一次
     
