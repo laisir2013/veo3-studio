@@ -1029,5 +1029,12 @@ async function uploadMergedVideo(filePath: string): Promise<string | null> {
 
 // 導出異步合併啟動函數
 export function startAsyncMerge(params: any, taskId: string) {
+  // 🔍 調試日誌：確認 startAsyncMerge 接收到的參數
+  console.log(`[startAsyncMerge] 🔍 接收到的參數:`);
+  console.log(`[startAsyncMerge]   - bgmId: ${params.bgmId}`);
+  console.log(`[startAsyncMerge]   - sunoStyle: ${params.sunoStyle}`);
+  console.log(`[startAsyncMerge]   - bgmUrl: ${params.bgmUrl}`);
+  console.log(`[startAsyncMerge]   - taskId: ${taskId}`);
+  
   return mergeVideos({ ...params, taskId });
 }
