@@ -5,6 +5,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { generateFullNarration, type SegmentNarration } from "./fullNarrationService";
 import type { VoiceLanguage } from "./videoConfig";
+import { generateSunoMusic, type SunoMusicStyle } from "./sunoService";
 import OpenAI from "openai";
 
 const execAsync = promisify(exec);
@@ -221,11 +222,19 @@ function updateMergeTaskStatus(taskId: string, status: MergeResult) {
 
 // BGM 選項定義
 export const BGM_OPTIONS = [
-  { id: "none", name: "無背景音樂", url: "" },
-  { id: "happy", name: "歡快", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/happy.mp3" },
-  { id: "sad", name: "憂傷", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/sad.mp3" },
-  { id: "epic", name: "史詩", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/epic.mp3" },
-  { id: "lofi", name: "Lofi", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/lofi.mp3" },
+  { id: "none", name: "無背景音樂", url: "", isSuno: false },
+  // 預設 BGM（靜態文件）
+  { id: "happy", name: "歡快", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/happy.mp3", isSuno: false },
+  { id: "sad", name: "憂傷", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/sad.mp3", isSuno: false },
+  { id: "epic", name: "史詩", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/epic.mp3", isSuno: false },
+  { id: "lofi", name: "Lofi", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/lofi.mp3", isSuno: false },
+  // Suno AI 生成（動態生成）
+  { id: "suno_cinematic", name: "🎬 AI 電影配樂", url: "", isSuno: true, sunoStyle: "cinematic" },
+  { id: "suno_emotional", name: "💕 AI 感性抒情", url: "", isSuno: true, sunoStyle: "emotional" },
+  { id: "suno_upbeat", name: "🎉 AI 歡快活潑", url: "", isSuno: true, sunoStyle: "upbeat" },
+  { id: "suno_dramatic", name: "🎭 AI 戲劇張力", url: "", isSuno: true, sunoStyle: "dramatic" },
+  { id: "suno_peaceful", name: "🌿 AI 平靜舒緩", url: "", isSuno: true, sunoStyle: "peaceful" },
+  { id: "suno_lofi", name: "🎧 AI Lofi 放鬆", url: "", isSuno: true, sunoStyle: "lofi" },
 ];
 
 // 字幕樣式定義
@@ -267,6 +276,8 @@ export async function mergeVideos(params: {
   videoUrls: string[];
   audioUrls: string[];
   bgmUrl?: string;
+  bgmId?: string;              // BGM 選項 ID（用於判斷是否為 Suno AI）
+  sunoStyle?: string;          // Suno AI 音樂風格
   bgmVolume?: number;
   narrationVolume?: number;
   originalVolume?: number;
@@ -312,10 +323,12 @@ async function processMerge(params: any, taskId: string) {
   const { 
     videoUrls, 
     audioUrls: originalAudioUrls, 
-    bgmUrl, 
-    bgmVolume = 30, 
-    narrationVolume = 80, 
-    originalVolume = 50,
+    bgmUrl: initialBgmUrl, 
+    bgmId,
+    sunoStyle,
+    bgmVolume = 25,          // 默認 BGM 音量: 25%
+    narrationVolume = 100,   // 默認旁白音量: 100%
+    originalVolume = 10,     // 默認視頻原音: 10%
     narrationTexts,
     voiceActorId,
     language,
@@ -372,6 +385,42 @@ async function processMerge(params: any, taskId: string) {
         }
       } catch (narrationError: any) {
         console.error(`[MergeTask] ❌ 旁白生成異常:`, narrationError.message);
+      }
+    }
+    
+    // 🎵 Suno AI 音樂生成（如果選擇了 Suno 風格）
+    let bgmUrl = initialBgmUrl;
+    if (bgmId?.startsWith('suno_') && sunoStyle) {
+      console.log(`[MergeTask] 🎵 開始 Suno AI 音樂生成...`);
+      console.log(`[MergeTask] 音樂風格: ${sunoStyle}`);
+      
+      updateMergeTaskStatus(taskId, { 
+        success: false, 
+        status: "processing", 
+        progress: 8, 
+        taskId,
+        currentStep: "🎵 正在生成 AI 背景音樂..." 
+      });
+      
+      try {
+        // 估算視頻總時長（每個片段約 8 秒）
+        const estimatedDuration = videoUrls.length * 8;
+        
+        const sunoResult = await generateSunoMusic(
+          sunoStyle as SunoMusicStyle,
+          estimatedDuration
+        );
+        
+        if (sunoResult) {
+          console.log(`[MergeTask] ✅ Suno AI 音樂生成成功!`);
+          console.log(`[MergeTask] 音樂 URL: ${sunoResult.substring(0, 60)}...`);
+          bgmUrl = sunoResult;
+        } else {
+          console.error(`[MergeTask] ❌ Suno AI 音樂生成失敗`);
+        }
+      } catch (sunoError: any) {
+        console.error(`[MergeTask] ❌ Suno AI 音樂生成異常:`, sunoError.message);
+        // Suno 失敗不影響主流程，繼續執行（無 BGM）
       }
     }
     

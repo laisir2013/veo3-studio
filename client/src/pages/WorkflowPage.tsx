@@ -60,6 +60,23 @@ import type { SeoResult } from "@/components/SeoPanel";
 import { toast } from "sonner";
 import { getSessionId, setSessionId } from "@/hooks/useHistory";
 
+// BGM 選項定義
+const BGM_OPTIONS = [
+  { id: "none", name: "無背景音樂", url: "" },
+  // 預設 BGM（靜態文件）
+  { id: "happy", name: "歡快", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/happy.mp3" },
+  { id: "sad", name: "憂傷", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/sad.mp3" },
+  { id: "epic", name: "史詩", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/epic.mp3" },
+  { id: "lofi", name: "Lofi", url: "https://pub-d1dca9c21afc42d6a42c7d104add27bb.r2.dev/audio/bgm/lofi.mp3" },
+  // Suno AI 生成（動態生成）
+  { id: "suno_cinematic", name: "🎬 AI 電影配樂", url: "" },
+  { id: "suno_emotional", name: "💕 AI 感性抒情", url: "" },
+  { id: "suno_upbeat", name: "🎉 AI 歡快活潑", url: "" },
+  { id: "suno_dramatic", name: "🎭 AI 戲劇張力", url: "" },
+  { id: "suno_peaceful", name: "🌿 AI 平靜舒緩", url: "" },
+  { id: "suno_lofi", name: "🎧 AI Lofi 放鬆", url: "" },
+];
+
 // 速度模式預設配置
 const SPEED_MODE_PRESETS = {
   fast: {
@@ -186,10 +203,11 @@ export default function WorkflowPage() {
   const [subtitles, setSubtitles] = useState<Array<{ segmentId: number; items: Array<{ start: number; end: number; text: string }> }>>([]);
   const [isGeneratingSubtitles, setIsGeneratingSubtitles] = useState(false);
 
-  // 步驟13：音量
-  const [narrationVolume, setNarrationVolume] = useState(80);
-  const [bgmVolume, setBgmVolume] = useState(30);
-  const [videoVolume, setVideoVolume] = useState(50);
+  // 步驟13：音量和背景音樂
+  const [narrationVolume, setNarrationVolume] = useState(100);  // 默認 100%
+  const [bgmVolume, setBgmVolume] = useState(25);                // 默認 25%
+  const [videoVolume, setVideoVolume] = useState(10);            // 默認 10%
+  const [selectedBgm, setSelectedBgm] = useState("suno_cinematic"); // 默認 AI 電影配樂
 
   // 步驟14：合併
   const [isMerging, setIsMerging] = useState(false);
@@ -281,9 +299,9 @@ export default function WorkflowPage() {
       setSelectedLanguage(savedState.selectedLanguage || "cantonese");
       setSelectedVoiceActor(savedState.selectedVoiceActor || "");
       setStoryOutline(savedState.storyOutline || "");
-      setNarrationVolume(savedState.narrationVolume ?? 80);
-      setBgmVolume(savedState.bgmVolume ?? 30);
-      setVideoVolume(savedState.videoVolume ?? 50);
+      setNarrationVolume(savedState.narrationVolume ?? 100);  // 默認 100%
+      setBgmVolume(savedState.bgmVolume ?? 25);                // 默認 25%
+      setVideoVolume(savedState.videoVolume ?? 10);            // 默認 10%
       setStepStatuses(savedState.stepStatuses || {});
       setSubtitles(savedState.subtitles || []);
       setMergedVideoUrl(savedState.mergedVideoUrl || null);
@@ -928,7 +946,13 @@ export default function WorkflowPage() {
     setIsProcessing(true);
 
     try {
-      const result = await mergeVideo.mutateAsync({
+      // 準備 BGM 參數
+        const bgmOption = BGM_OPTIONS.find(opt => opt.id === selectedBgm);
+        const isSunoBgm = selectedBgm.startsWith('suno_');
+        const sunoStyle = isSunoBgm ? selectedBgm.replace('suno_', '') : undefined;
+        const bgmUrl = !isSunoBgm && bgmOption?.url ? bgmOption.url : undefined;
+        
+        const result = await mergeVideo.mutateAsync({
         taskId: taskId || "unknown", // 即使沒有 taskId 也嘗試
         narrationVolume,
         bgmVolume,
@@ -937,6 +961,9 @@ export default function WorkflowPage() {
         audioUrls: completedAudioUrls, // ✅ 新增：傳遞旁白音頻 URL
         enableSubtitles: true, // ✅ 啟用字幕燒錄
         fullNarrationText: fullNarration, // ✅ 完整旁白文字
+        bgmId: selectedBgm,              // ✅ BGM 選項 ID
+        bgmUrl: bgmUrl,                  // ✅ 預設 BGM URL（非 Suno）
+        sunoStyle: sunoStyle,            // ✅ Suno AI 音樂風格
       });
 
       console.log("[Merge Result]", result);
@@ -1980,6 +2007,37 @@ Total: ${segmentCount} segments of 8 seconds each`;
         return (
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-6">
+              {/* 背景音樂選擇 */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2">
+                  <Music className="w-4 h-4" />
+                  背景音樂
+                </Label>
+                <Select value={selectedBgm} onValueChange={setSelectedBgm}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="選擇背景音樂" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">無背景音樂</SelectItem>
+                    <SelectItem value="suno_cinematic">🎬 AI 電影配樂</SelectItem>
+                    <SelectItem value="suno_emotional">💕 AI 感性抒情</SelectItem>
+                    <SelectItem value="suno_upbeat">🎉 AI 歡快活潑</SelectItem>
+                    <SelectItem value="suno_dramatic">🎭 AI 戲劇張力</SelectItem>
+                    <SelectItem value="suno_peaceful">🌿 AI 平靜舒緩</SelectItem>
+                    <SelectItem value="suno_lofi">🎧 AI Lofi 放鬆</SelectItem>
+                    <SelectItem value="happy">歡快（預設）</SelectItem>
+                    <SelectItem value="sad">憂傷（預設）</SelectItem>
+                    <SelectItem value="epic">史詩（預設）</SelectItem>
+                    <SelectItem value="lofi">Lofi（預設）</SelectItem>
+                  </SelectContent>
+                </Select>
+                {selectedBgm.startsWith('suno_') && (
+                  <p className="text-xs text-zinc-400">
+                    🎵 AI 音樂將在合併時自動生成（約 1-2 分鐘）
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>旁白音量</Label>
@@ -2003,6 +2061,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
                   onValueChange={(v) => setBgmVolume(v[0])}
                   max={100}
                   step={5}
+                  disabled={selectedBgm === 'none'}
                 />
               </div>
 

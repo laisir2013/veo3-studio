@@ -692,9 +692,9 @@ export const appRouter = router({
     merge: publicProcedure
       .input(z.object({
         taskId: z.string(),
-        narrationVolume: z.number().default(80),
-        bgmVolume: z.number().default(30),
-        originalVolume: z.number().default(50),
+        narrationVolume: z.number().default(100),   // 默認 100%
+        bgmVolume: z.number().default(25),          // 默認 25%
+        originalVolume: z.number().default(10),     // 默認 10%
         videoUrls: z.array(z.string()).optional(),
         audioUrls: z.array(z.string()).optional(),
         // 新增：完整旁白生成參數
@@ -702,6 +702,10 @@ export const appRouter = router({
         // 新增：字幕參數
         enableSubtitles: z.boolean().default(false), // 是否啟用字幕燒錄
         fullNarrationText: z.string().optional(), // 完整旁白文字（用於字幕）
+        // 新增：BGM 和 Suno AI 參數
+        bgmId: z.string().optional(),              // BGM 選項 ID
+        bgmUrl: z.string().optional(),             // 預設 BGM URL
+        sunoStyle: z.string().optional(),          // Suno AI 音樂風格
       }))
       .mutation(async ({ ctx, input }) => {
         const task = getLongVideoTask(input.taskId);
@@ -766,6 +770,10 @@ export const appRouter = router({
           // 📝 字幕參數
           enableSubtitles: input.enableSubtitles || false,
           fullNarrationText: input.fullNarrationText,
+          // 🎵 BGM 和 Suno AI 參數
+          bgmId: input.bgmId,
+          bgmUrl: input.bgmUrl,
+          sunoStyle: input.sunoStyle,
         }, mergeTaskId);
 
         console.log(`[LongVideo ${taskIdForLog}] 🚀 已啟動異步合併任務: ${mergeTaskId}`);
