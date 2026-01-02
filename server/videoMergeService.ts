@@ -411,41 +411,8 @@ async function processMerge(params: any, taskId: string) {
       }
     }
     
-    // 🎵 Suno AI 音樂生成（如果選擇了 Suno 風格）
+    // 🎵 背景音樂
     let bgmUrl = initialBgmUrl;
-    if (bgmId?.startsWith('suno_') && sunoStyle) {
-      console.log(`[MergeTask] 🎵 開始 Suno AI 音樂生成...`);
-      console.log(`[MergeTask] 音樂風格: ${sunoStyle}`);
-      
-      updateMergeTaskStatus(taskId, { 
-        success: false, 
-        status: "processing", 
-        progress: 8, 
-        taskId,
-        currentStep: "🎵 正在生成 AI 背景音樂..." 
-      });
-      
-      try {
-        // 估算視頻總時長（每個片段約 8 秒）
-        const estimatedDuration = videoUrls.length * 8;
-        
-        const sunoResult = await generateSunoMusic(
-          sunoStyle as SunoMusicStyle,
-          estimatedDuration
-        );
-        
-        if (sunoResult) {
-          console.log(`[MergeTask] ✅ Suno AI 音樂生成成功!`);
-          console.log(`[MergeTask] 音樂 URL: ${sunoResult.substring(0, 60)}...`);
-          bgmUrl = sunoResult;
-        } else {
-          console.error(`[MergeTask] ❌ Suno AI 音樂生成失敗`);
-        }
-      } catch (sunoError: any) {
-        console.error(`[MergeTask] ❌ Suno AI 音樂生成異常:`, sunoError.message);
-        // Suno 失敗不影響主流程，繼續執行（無 BGM）
-      }
-    }
     
     const totalSegments = videoUrls.length;
     const normalizedFiles: string[] = [];
