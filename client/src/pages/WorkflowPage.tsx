@@ -827,8 +827,9 @@ export default function WorkflowPage() {
   // 步驟14：合併視頻（三層容錯機制）
   // 🔄 輪詢合併狀態的函數
   const pollMergeStatus = async (mergeTaskId: string): Promise<string | null> => {
-    const maxAttempts = 120; // 最多輪詢 120 次（約 10 分鐘）
-    const pollInterval = 5000; // 每 5 秒輪詢一次
+    const maxAttempts = 60; // 最多輪詢 60 次（約 3 分鐘）
+    const pollInterval = 3000; // 每 3 秒輪詢一次
+    let notFoundCount = 0; // 計算任務不存在的次數
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -841,14 +842,36 @@ export default function WorkflowPage() {
         if (status?.status === "completed" && status?.videoUrl) {
           return status.videoUrl;
         } else if (status?.status === "failed") {
-          throw new Error(status.error || "合併失敗");
+          // 如果是「任務不存在」，可能是服務重啟導致，給幾次機會
+          if (status.error === "任務不存在") {
+            notFoundCount++;
+            // 如果連續 5 次都找不到任務，可能是服務重啟了
+            if (notFoundCount >= 5) {
+              throw new Error("合併任務已過期（服務器可能已重啟），請重新合併");
+            }
+          } else {
+            throw new Error(status.error || "合併失敗");
+          }
+        } else if (!status || status.status === undefined) {
+          // 狀態為空，可能是服務重啟導致
+          notFoundCount++;
+          if (notFoundCount >= 5) {
+            throw new Error("合併任務已過期（服務器可能已重啟），請重新合併");
+          }
+        } else {
+          // 狀態正常，重置計數器
+          notFoundCount = 0;
         }
         
         // 等待後再輪詢
         await new Promise(resolve => setTimeout(resolve, pollInterval));
-      } catch (error) {
+      } catch (error: any) {
         console.error(`[Merge Poll] 輪詢錯誤:`, error);
-        // 繼續輪詢，不要立即失敗
+        // 如果是我們拋出的錯誤，直接拋出
+        if (error.message?.includes("已過期") || error.message?.includes("失敗")) {
+          throw error;
+        }
+        // 其他錯誤繼續輪詢
       }
     }
     
