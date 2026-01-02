@@ -387,7 +387,13 @@ async function processMerge(params: any, taskId: string) {
           "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate), "-shortest", `"${finalPath}"`
         ].join(" ");
       } else {
-        mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`;
+        // 沒有 BGM 時也使用重新編碼，確保音頻正確合併
+        mergeCmd = [
+          "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+          "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+          `"${finalPath}"`
+        ].join(" ");
       }
       
       await execAsync(mergeCmd, { timeout: 600000 }); // 10 分鐘超時
@@ -434,7 +440,15 @@ async function mergeChunk(files: string[], outputPath: string) {
   const listContent = files.map(f => `file '${f}'`).join("\n");
   fs.writeFileSync(listPath, listContent);
   
-  const cmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${outputPath}"`;
+  // 使用重新編碼確保音頻正確合併（避免 -c copy 導致音頻丟失）
+  const cmd = [
+    "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+    "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+    "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+    `"${outputPath}"`
+  ].join(" ");
+  
+  console.log(`[MergeChunk] 執行合併命令: ${cmd.substring(0, 150)}...`);
   await execAsync(cmd, { timeout: 300000 });
   
   // 清理列表文件
