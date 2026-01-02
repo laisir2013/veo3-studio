@@ -825,6 +825,36 @@ export default function WorkflowPage() {
   };
 
   // 步驟14：合併視頻（三層容錯機制）
+  // 🔄 輪詢合併狀態的函數
+  const pollMergeStatus = async (mergeTaskId: string): Promise<string | null> => {
+    const maxAttempts = 120; // 最多輪詢 120 次（約 10 分鐘）
+    const pollInterval = 5000; // 每 5 秒輪詢一次
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await fetch(`/api/trpc/longVideo.status?input=${encodeURIComponent(JSON.stringify({ mergeTaskId }))}`);
+        const data = await response.json();
+        const status = data?.result?.data;
+        
+        console.log(`[Merge Poll] 第 ${attempt + 1} 次輪詢:`, status);
+        
+        if (status?.status === "completed" && status?.videoUrl) {
+          return status.videoUrl;
+        } else if (status?.status === "failed") {
+          throw new Error(status.error || "合併失敗");
+        }
+        
+        // 等待後再輪詢
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      } catch (error) {
+        console.error(`[Merge Poll] 輪詢錯誤:`, error);
+        // 繼續輪詢，不要立即失敗
+      }
+    }
+    
+    throw new Error("合併超時，請稍後重試");
+  };
+
   const handleMergeVideo = async () => {
     // ✅ 修復：合併前先清空舊狀態，避免緩存汙染
     setMergedVideoUrl(null);
@@ -886,16 +916,25 @@ export default function WorkflowPage() {
 
       console.log("[Merge Result]", result);
 
-      // ✅ 修復：只有 success: true 且有 videoUrl 才算成功
-      if (result.success && result.videoUrl) {
-        setMergedVideoUrl(result.videoUrl);
+      // ✅ 修復：異步合併模式 - 需要輪詢狀態
+      if (result.success && result.mergeTaskId) {
+        toast.info("合併任務已啟動，正在處理中...", { duration: 3000 });
         
-        // 檢查是否為本地模式
-        if (result.mode === "local") {
-          toast.success("視頻合併成功！（本地 FFmpeg）");
-        } else {
-          toast.success("視頻合併成功！");
+        try {
+          // 輪詢合併狀態直到完成
+          const videoUrl = await pollMergeStatus(result.mergeTaskId);
+          if (videoUrl) {
+            setMergedVideoUrl(videoUrl);
+            toast.success("視頻合併成功！");
+          }
+        } catch (pollError: any) {
+          toast.error(`合併失敗：${pollError.message}`);
+          console.error("[Merge Poll Error]", pollError);
         }
+      } else if (result.success && result.videoUrl) {
+        // 同步模式（舊版兼容）
+        setMergedVideoUrl(result.videoUrl);
+        toast.success("視頻合併成功！");
       } else {
         // ✅ 修復：合併失敗時不設置 mergedVideoUrl，但顯示片段下載連結
         const errorMsg = result.error || "合併失敗";
