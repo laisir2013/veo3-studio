@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { generateFullNarration, type SegmentNarration } from "./fullNarrationService";
+import type { VoiceLanguage } from "./videoConfig";
 
 const execAsync = promisify(exec);
 
@@ -76,6 +78,11 @@ export async function mergeVideos(params: {
   originalVolume?: number;
   isHybridMode?: boolean;
   taskId?: string;
+  // 新增：完整旁白生成參數
+  narrationTexts?: string[];  // 每個片段的旁白文字
+  voiceActorId?: string;      // 配音員 ID
+  language?: VoiceLanguage;   // 語言
+  useFullNarration?: boolean; // 是否使用完整旁白生成
 }): Promise<MergeResult> {
   const taskId = params.taskId || `merge_${Date.now()}`;
   
@@ -106,11 +113,78 @@ export async function mergeVideos(params: {
  * 核心合併邏輯 (異步執行) - 支持 8 分鐘視頻的分段合併
  */
 async function processMerge(params: any, taskId: string) {
-  const { videoUrls, audioUrls, bgmUrl, bgmVolume = 30, narrationVolume = 80, originalVolume = 50 } = params;
+  const { 
+    videoUrls, 
+    audioUrls: originalAudioUrls, 
+    bgmUrl, 
+    bgmVolume = 30, 
+    narrationVolume = 80, 
+    originalVolume = 50,
+    narrationTexts,
+    voiceActorId,
+    language,
+    useFullNarration = false
+  } = params;
   const tempDir = path.join("/tmp", `veo3-merge-${taskId}`);
+  
+  // 最終使用的音頻 URL 列表
+  let audioUrls = originalAudioUrls;
   
   try {
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    
+    // 🎤 如果啟用完整旁白生成，先生成完整音頻並切割
+    if (useFullNarration && narrationTexts && narrationTexts.length > 0 && voiceActorId) {
+      console.log(`[MergeTask] 🎤 開始完整旁白生成...`);
+      console.log(`[MergeTask] 片段數量: ${narrationTexts.length}`);
+      console.log(`[MergeTask] 配音員: ${voiceActorId}`);
+      console.log(`[MergeTask] 語言: ${language}`);
+      
+      mergeTasks.set(taskId, { 
+        success: false, 
+        status: "processing", 
+        progress: 5, 
+        taskId,
+        currentStep: "🎤 正在生成完整旁白音頻..." 
+      });
+      
+      // 準備旁白數據
+      const narrationSegments: SegmentNarration[] = narrationTexts.map((text, index) => ({
+        segmentId: index,
+        text: text || `Scene ${index + 1}`,
+      }));
+      
+      try {
+        const narrationResult = await generateFullNarration(
+          narrationSegments,
+          voiceActorId,
+          language || 'cantonese',
+          true // 使用 Whisper 分割
+        );
+        
+        if (narrationResult.success && narrationResult.segments.length > 0) {
+          console.log(`[MergeTask] ✅ 完整旁白生成成功!`);
+          console.log(`[MergeTask] 完整音頻時長: ${narrationResult.fullAudioDuration.toFixed(2)} 秒`);
+          console.log(`[MergeTask] 分割片段數: ${narrationResult.segments.length}`);
+          
+          // 替換音頻 URL 列表
+          audioUrls = narrationResult.segments.map(seg => seg.audioUrl || '');
+          
+          // 記錄每個片段的音頻 URL
+          audioUrls.forEach((url, i) => {
+            if (url) {
+              console.log(`[MergeTask] 片段 ${i}: ${url.substring(0, 60)}...`);
+            }
+          });
+        } else {
+          console.error(`[MergeTask] ❌ 完整旁白生成失敗: ${narrationResult.error}`);
+          console.log(`[MergeTask] 回退到原始音頻 URL`);
+        }
+      } catch (narrationError: any) {
+        console.error(`[MergeTask] ❌ 旁白生成異常:`, narrationError.message);
+        console.log(`[MergeTask] 回退到原始音頻 URL`);
+      }
+    }
     
     const totalSegments = videoUrls.length;
     const normalizedFiles: string[] = [];

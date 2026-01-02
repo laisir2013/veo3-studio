@@ -697,6 +697,8 @@ export const appRouter = router({
         originalVolume: z.number().default(50),
         videoUrls: z.array(z.string()).optional(),
         audioUrls: z.array(z.string()).optional(),
+        // 新增：完整旁白生成參數
+        useFullNarration: z.boolean().default(true), // 默認啟用完整旁白生成
       }))
       .mutation(async ({ ctx, input }) => {
         const task = getLongVideoTask(input.taskId);
@@ -733,6 +735,16 @@ export const appRouter = router({
 
         const mergeTaskId = `merge_${input.taskId}_${Date.now()}`;
         
+        // 🎤 準備完整旁白生成參數
+        const voiceActorId = task?.voiceActorId || 'default';
+        const language = task?.language || 'cantonese';
+        
+        console.log(`[LongVideo ${taskIdForLog}] 🎤 完整旁白生成參數:`);
+        console.log(`  - useFullNarration: ${input.useFullNarration}`);
+        console.log(`  - voiceActorId: ${voiceActorId}`);
+        console.log(`  - language: ${language}`);
+        console.log(`  - narrations count: ${narrations.length}`);
+        
         // 🚀 啟動異步合併任務
         startAsyncMerge({
           videoUrls: videoUrls,
@@ -743,6 +755,11 @@ export const appRouter = router({
           narrationVolume: input.narrationVolume,
           bgmVolume: input.bgmVolume,
           originalVolume: input.originalVolume,
+          // 🎤 完整旁白生成參數
+          narrationTexts: narrations,
+          voiceActorId: voiceActorId,
+          language: language,
+          useFullNarration: input.useFullNarration !== false, // 默認啟用
         }, mergeTaskId);
 
         console.log(`[LongVideo ${taskIdForLog}] 🚀 已啟動異步合併任務: ${mergeTaskId}`);
