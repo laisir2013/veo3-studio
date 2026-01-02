@@ -1,6 +1,7 @@
 import { getNextApiKey, API_ENDPOINTS, STORY_MODE_PRESETS, type VideoModel, type StoryMode, RETRY_CONFIG, BACKUP_LLM_CONFIG } from "./videoConfig";
 import type { SceneData } from "../drizzle/schema";
 import { LLM_FALLBACK_CONFIG, VIDEO_FALLBACK_CHAIN } from "./videoConfig";
+import { callManusVideoGeneration, isManusApiAvailable } from "./manusFallbackService";
 
 // 睡眠函數
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -663,7 +664,19 @@ export async function generateVideo(
     }
   }
 
-  throw lastError || new Error("所有視頻模型都失敗");
+  // 所有模型都失敗，嘗試 Manus 後備
+  if (isManusApiAvailable()) {
+    console.log(`[Video] 所有模型都失敗，嘗試 Manus 後備...`);
+    try {
+      const result = await callManusVideoGeneration(prompt, imageUrl, { duration: 8 });
+      console.log(`[Video] Manus 後備成功`);
+      return result.videoUrl;
+    } catch (manusError) {
+      console.error(`[Video] Manus 後備也失敗:`, manusError);
+    }
+  }
+
+  throw lastError || new Error("所有視頻模型都失敗（包括 Manus 後備）");
 }
 
 // Veo 視頻生成
