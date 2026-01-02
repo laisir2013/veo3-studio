@@ -351,6 +351,14 @@ async function processMerge(params: any, taskId: string) {
     fullNarrationText,
     enableSubtitles = false
   } = params;
+  
+  // 🔍 調試日誌：確認 BGM 參數
+  console.log(`[MergeTask] 🔍 BGM 參數調試:`);
+  console.log(`[MergeTask]   - bgmId: ${bgmId}`);
+  console.log(`[MergeTask]   - sunoStyle: ${sunoStyle}`);
+  console.log(`[MergeTask]   - initialBgmUrl: ${initialBgmUrl}`);
+  console.log(`[MergeTask]   - bgmId?.startsWith('suno_'): ${bgmId?.startsWith('suno_')}`);
+  
   const tempDir = path.join("/tmp", `veo3-merge-${taskId}`);
   
   // 完整旁白 URL（用於最終合併時一次性加入）
