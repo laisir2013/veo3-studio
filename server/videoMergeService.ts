@@ -39,6 +39,69 @@ export interface MergeResult {
 // 任務狀態管理
 const mergeTasks = new Map<string, MergeResult>();
 
+// 持久化目錄
+const MERGE_TASKS_DIR = "/app/data/merge_tasks";
+
+/**
+ * 初始化持久化目錄
+ */
+function initMergeTasksDir() {
+  try {
+    if (!fs.existsSync(MERGE_TASKS_DIR)) {
+      fs.mkdirSync(MERGE_TASKS_DIR, { recursive: true });
+      console.log(`[✅ MergePersist] 目錄已創建: ${MERGE_TASKS_DIR}`);
+    }
+  } catch (err) {
+    console.error(`[❌ MergePersist] 無法創建目錄:`, err);
+  }
+}
+
+/**
+ * 保存合併任務狀態到文件
+ */
+function saveMergeTaskStatus(taskId: string, status: MergeResult) {
+  try {
+    initMergeTasksDir();
+    const filePath = path.join(MERGE_TASKS_DIR, `${taskId}.json`);
+    fs.writeFileSync(filePath, JSON.stringify({ ...status, updatedAt: Date.now() }), "utf-8");
+    console.log(`[✅ MergePersist] 任務狀態已保存: ${taskId}`);
+  } catch (err) {
+    console.error(`[❌ MergePersist] 保存失敗:`, err);
+  }
+}
+
+/**
+ * 從文件讀取合併任務狀態
+ */
+function loadMergeTaskStatus(taskId: string): MergeResult | null {
+  try {
+    const filePath = path.join(MERGE_TASKS_DIR, `${taskId}.json`);
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      // 檢查任務是否過期（24小時）
+      if (data.updatedAt && Date.now() - data.updatedAt < 24 * 60 * 60 * 1000) {
+        console.log(`[✅ MergePersist] 任務狀態已讀取: ${taskId}`);
+        return data;
+      } else {
+        // 刪除過期文件
+        fs.unlinkSync(filePath);
+        console.log(`[🗑️ MergePersist] 過期任務已刪除: ${taskId}`);
+      }
+    }
+  } catch (err) {
+    console.error(`[❌ MergePersist] 讀取失敗:`, err);
+  }
+  return null;
+}
+
+/**
+ * 更新合併任務狀態（同時更新內存和文件）
+ */
+function updateMergeTaskStatus(taskId: string, status: MergeResult) {
+  mergeTasks.set(taskId, status);
+  saveMergeTaskStatus(taskId, status);
+}
+
 // BGM 選項定義
 export const BGM_OPTIONS = [
   { id: "none", name: "無背景音樂", url: "" },
@@ -60,10 +123,24 @@ export type BgmType = "none" | "happy" | "sad" | "epic" | "lofi";
 export type SubtitleStyle = "default" | "white" | "black" | "yellow";
 
 /**
- * 獲取合併任務狀態
+ * 獲取合併任務狀態（先從內存讀取，如果沒有則從文件讀取）
  */
 export function getMergeTaskStatus(taskId: string): MergeResult {
-  return mergeTasks.get(taskId) || { success: false, error: "任務不存在", status: "failed" };
+  // 先從內存讀取
+  const memoryStatus = mergeTasks.get(taskId);
+  if (memoryStatus) {
+    return memoryStatus;
+  }
+  
+  // 從文件讀取（服務重啟後恢復）
+  const fileStatus = loadMergeTaskStatus(taskId);
+  if (fileStatus) {
+    // 將文件狀態加載到內存
+    mergeTasks.set(taskId, fileStatus);
+    return fileStatus;
+  }
+  
+  return { success: false, error: "任務不存在", status: "failed" };
 }
 
 /**
@@ -86,8 +163,8 @@ export async function mergeVideos(params: {
 }): Promise<MergeResult> {
   const taskId = params.taskId || `merge_${Date.now()}`;
   
-  // 初始化任務狀態
-  mergeTasks.set(taskId, { 
+  // 初始化任務狀態（持久化）
+  updateMergeTaskStatus(taskId, { 
     success: false, 
     status: "processing", 
     progress: 0, 
@@ -97,7 +174,7 @@ export async function mergeVideos(params: {
   // 異步執行合併過程
   processMerge(params, taskId).catch(err => {
     console.error(`[MergeTask] 任務 ${taskId} 失敗:`, err);
-    mergeTasks.set(taskId, { 
+    updateMergeTaskStatus(taskId, { 
       success: false, 
       status: "failed", 
       error: err.message, 
@@ -140,7 +217,7 @@ async function processMerge(params: any, taskId: string) {
       console.log(`[MergeTask] 配音員: ${voiceActorId}`);
       console.log(`[MergeTask] 語言: ${language}`);
       
-      mergeTasks.set(taskId, { 
+      updateMergeTaskStatus(taskId, { 
         success: false, 
         status: "processing", 
         progress: 5, 
@@ -264,7 +341,7 @@ async function processMerge(params: any, taskId: string) {
       
       // 更新進度
       const progress = Math.round(((i + batch.length) / totalSegments) * 60);
-      mergeTasks.set(taskId, { success: false, status: "processing", progress, taskId });
+      updateMergeTaskStatus(taskId, { success: false, status: "processing", progress, taskId });
     }
     
     // 如果還有剩餘的標準化文件，添加到中間塊
@@ -317,24 +394,25 @@ async function processMerge(params: any, taskId: string) {
     }
 
     // 4. 上傳結果
-    mergeTasks.set(taskId, { success: false, status: "processing", progress: 90, taskId });
+    updateMergeTaskStatus(taskId, { success: false, status: "processing", progress: 90, taskId });
     const videoUrl = await uploadMergedVideo(finalPath);
 
     if (videoUrl) {
-      mergeTasks.set(taskId, { 
+      updateMergeTaskStatus(taskId, { 
         success: true, 
         status: "completed", 
         progress: 100, 
         videoUrl, 
         taskId 
       });
+      console.log(`[✅ MergeTask] 合併完成! videoUrl: ${videoUrl}`);
     } else {
       throw new Error("上傳失敗");
     }
 
   } catch (error: any) {
     console.error(`[MergeTask] 錯誤:`, error);
-    mergeTasks.set(taskId, { 
+    updateMergeTaskStatus(taskId, { 
       success: false, 
       status: "failed", 
       error: error.message, 
