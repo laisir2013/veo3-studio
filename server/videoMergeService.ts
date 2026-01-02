@@ -204,15 +204,15 @@ async function processMerge(params: any, taskId: string) {
   } = params;
   const tempDir = path.join("/tmp", `veo3-merge-${taskId}`);
   
-  // 最終使用的音頻 URL 列表
-  let audioUrls = originalAudioUrls;
+  // 完整旁白 URL（用於最終合併時一次性加入）
+  let fullNarrationUrl: string | null = null;
   
   try {
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     
-    // 🎤 如果啟用完整旁白生成，先生成完整音頻並切割
+    // 🎤 如果啟用完整旁白生成，生成完整音頻（不切割）
     if (useFullNarration && narrationTexts && narrationTexts.length > 0 && voiceActorId) {
-      console.log(`[MergeTask] 🎤 開始完整旁白生成...`);
+      console.log(`[MergeTask] 🎤 開始完整旁白生成（不分段）...`);
       console.log(`[MergeTask] 片段數量: ${narrationTexts.length}`);
       console.log(`[MergeTask] 配音員: ${voiceActorId}`);
       console.log(`[MergeTask] 語言: ${language}`);
@@ -236,30 +236,21 @@ async function processMerge(params: any, taskId: string) {
           narrationSegments,
           voiceActorId,
           language || 'cantonese',
-          true // 使用 Whisper 分割
+          false // 不使用 Whisper 分割，保持完整音頻
         );
         
-        if (narrationResult.success && narrationResult.segments.length > 0) {
+        if (narrationResult.success && narrationResult.fullAudioUrl) {
           console.log(`[MergeTask] ✅ 完整旁白生成成功!`);
           console.log(`[MergeTask] 完整音頻時長: ${narrationResult.fullAudioDuration.toFixed(2)} 秒`);
-          console.log(`[MergeTask] 分割片段數: ${narrationResult.segments.length}`);
+          console.log(`[MergeTask] 完整音頻 URL: ${narrationResult.fullAudioUrl.substring(0, 60)}...`);
           
-          // 替換音頻 URL 列表
-          audioUrls = narrationResult.segments.map(seg => seg.audioUrl || '');
-          
-          // 記錄每個片段的音頻 URL
-          audioUrls.forEach((url, i) => {
-            if (url) {
-              console.log(`[MergeTask] 片段 ${i}: ${url.substring(0, 60)}...`);
-            }
-          });
+          // 保存完整旁白 URL，在最終合併時使用
+          fullNarrationUrl = narrationResult.fullAudioUrl;
         } else {
           console.error(`[MergeTask] ❌ 完整旁白生成失敗: ${narrationResult.error}`);
-          console.log(`[MergeTask] 回退到原始音頻 URL`);
         }
       } catch (narrationError: any) {
         console.error(`[MergeTask] ❌ 旁白生成異常:`, narrationError.message);
-        console.log(`[MergeTask] 回退到原始音頻 URL`);
       }
     }
     
@@ -274,12 +265,10 @@ async function processMerge(params: any, taskId: string) {
     
     for (let i = 0; i < totalSegments; i += batchSize) {
       const batch = videoUrls.slice(i, i + batchSize);
-      const batchAudios = audioUrls.slice(i, i + batchSize);
       
       const batchPromises = batch.map(async (url: string, index: number) => {
         const realIndex = i + index;
         const segmentPath = path.join(tempDir, `seg_${realIndex}.mp4`);
-        const audioPath = path.join(tempDir, `audio_${realIndex}.mp3`);
         const outputPath = path.join(tempDir, `norm_${realIndex}.mp4`);
 
         // 確保臨時目錄存在（修復並發問題）
@@ -289,19 +278,14 @@ async function processMerge(params: any, taskId: string) {
 
         // 下載素材（帶重試機制）
         await downloadFileWithRetry(url, segmentPath, 3);
-        if (batchAudios[index]) {
-          await downloadFileWithRetry(batchAudios[index], audioPath, 3);
-          // 新增：檢測並修復音頻時長
-          await ensureAudioDuration(audioPath, 8);
-        }
 
         // 確保目錄仍然存在後再執行標準化
         if (!fs.existsSync(tempDir)) {
           fs.mkdirSync(tempDir, { recursive: true });
         }
 
-        // 標準化片段
-        await normalizeVideo(segmentPath, audioPath, outputPath, {
+        // 標準化片段（不加入旁白，旁白在最終合併時一次性加入）
+        await normalizeVideo(segmentPath, '', outputPath, {
           narrationVolume,
           originalVolume
         });
@@ -309,7 +293,6 @@ async function processMerge(params: any, taskId: string) {
         // 清理原始文件以節省內存
         try {
           if (fs.existsSync(segmentPath)) fs.unlinkSync(segmentPath);
-          if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
         } catch (e) {}
 
         return outputPath;
@@ -363,39 +346,88 @@ async function processMerge(params: any, taskId: string) {
 
     const finalPath = path.join(tempDir, "final_output.mp4");
 
-    // 3. 執行最終合併（如果有多個中間塊）
-    console.log(`[MergeTask] 執行最終合併... (中間塊數: ${intermediateChunks.length})`);
-    let mergeCmd = "";
+    // 3. 執行最終合併
+    console.log(`[MergeTask] 執行最終合併... (中間塊數: ${intermediateChunks.length}, 完整旁白: ${fullNarrationUrl ? '有' : '無'})`);
+    
+    // 先合併所有片段成一個視頻
+    const mergedVideoPath = path.join(tempDir, "merged_video.mp4");
     
     if (intermediateChunks.length === 1) {
       // 只有一個中間塊，直接複製
-      fs.copyFileSync(intermediateChunks[0], finalPath);
+      fs.copyFileSync(intermediateChunks[0], mergedVideoPath);
     } else if (intermediateChunks.length > 1) {
       // 多個中間塊，執行合併
+      const concatCmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+        "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        `"${mergedVideoPath}"`
+      ].join(" ");
+      await execAsync(concatCmd, { timeout: 600000 });
+    }
+    
+    // 4. 加入完整旁白和 BGM
+    let mergeCmd = "";
+    const narrationVol = narrationVolume / 100;
+    const bgmVol = bgmVolume / 100;
+    
+    if (fullNarrationUrl) {
+      // 下載完整旁白音頻
+      const narrationPath = path.join(tempDir, "full_narration.mp3");
+      await downloadFileWithRetry(fullNarrationUrl, narrationPath, 3);
+      console.log(`[MergeTask] 完整旁白已下載: ${narrationPath}`);
+      
       if (bgmUrl) {
+        // 有旁白 + 有 BGM
         const bgmPath = path.join(tempDir, "bgm.mp3");
         await downloadFileWithRetry(bgmUrl, bgmPath, 3);
-        const bgmVol = bgmVolume / 100;
         
-        // 重要：統一採樣率到 44100Hz，避免 BGM 和視頻音頻混合時出現變慢問題
         mergeCmd = [
-          "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+          "ffmpeg", "-y",
+          "-i", `"${mergedVideoPath}"`,
+          "-i", `"${narrationPath}"`,
           "-stream_loop", "-1", "-i", `"${bgmPath}"`,
-          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=1.0[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[2:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a2];[a0][a1][a2]amix=inputs=3:duration=first:dropout_transition=2[aout]"`,
           "-map", "0:v", "-map", '"[aout]"',
           "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
-          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate), "-shortest", `"${finalPath}"`
+          "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+          "-shortest", `"${finalPath}"`
         ].join(" ");
       } else {
-        // 沒有 BGM 時也使用重新編碼，確保音頻正確合併
+        // 有旁白 + 無 BGM
         mergeCmd = [
-          "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", `"${listPath}"`,
+          "ffmpeg", "-y",
+          "-i", `"${mergedVideoPath}"`,
+          "-i", `"${narrationPath}"`,
+          "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${originalVolume/100}[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${narrationVol}[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+          "-map", "0:v", "-map", '"[aout]"',
           "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
           "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
-          `"${finalPath}"`
+          "-shortest", `"${finalPath}"`
         ].join(" ");
       }
+    } else if (bgmUrl) {
+      // 無旁白 + 有 BGM
+      const bgmPath = path.join(tempDir, "bgm.mp3");
+      await downloadFileWithRetry(bgmUrl, bgmPath, 3);
       
+      mergeCmd = [
+        "ffmpeg", "-y",
+        "-i", `"${mergedVideoPath}"`,
+        "-stream_loop", "-1", "-i", `"${bgmPath}"`,
+        "-filter_complex", `"[0:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=1.0[a0];[1:a]aresample=${NORMALIZE_CONFIG.audioSampleRate},volume=${bgmVol},apad[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"`,
+        "-map", "0:v", "-map", '"[aout]"',
+        "-c:v", NORMALIZE_CONFIG.videoCodec, "-preset", "ultrafast", "-crf", "28",
+        "-c:a", NORMALIZE_CONFIG.audioCodec, "-ar", String(NORMALIZE_CONFIG.audioSampleRate),
+        "-shortest", `"${finalPath}"`
+      ].join(" ");
+    } else {
+      // 無旁白 + 無 BGM，直接複製
+      fs.copyFileSync(mergedVideoPath, finalPath);
+    }
+    
+    if (mergeCmd) {
+      console.log(`[MergeTask] 執行音頻混合命令...`);
       await execAsync(mergeCmd, { timeout: 600000 }); // 10 分鐘超時
     }
 
