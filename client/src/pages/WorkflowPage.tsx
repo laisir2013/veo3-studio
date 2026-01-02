@@ -1349,7 +1349,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
           <StepCard step={WORKFLOW_STEPS[4]} status={stepStatuses[5] || "pending"} isCurrent={true}>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>片段描述與旁白</Label>
+                <Label>場景描述與完整旁白</Label>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1370,7 +1370,24 @@ Total: ${segmentCount} segments of 8 seconds each`;
                 </Button>
               </div>
 
-              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {/* 完整旁白區域 */}
+              {fullNarration && (
+                <div className="p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 rounded-lg border border-amber-500/30">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Volume2 className="w-4 h-4 text-amber-500" />
+                    <Label className="text-amber-500 font-medium">完整旁白</Label>
+                    <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-400">
+                      {fullNarration.length} 字
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                    {fullNarration}
+                  </p>
+                </div>
+              )}
+
+              {/* 場景描述列表 */}
+              <div className="space-y-3 max-h-[300px] overflow-y-auto">
                 {segments.map((seg) => (
                   <div key={seg.id} className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
                     <div className="flex items-center justify-between mb-2">
@@ -1379,15 +1396,9 @@ Total: ${segmentCount} segments of 8 seconds each`;
                         {(seg.id - 1) * 8}s - {seg.id * 8}s
                       </span>
                     </div>
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-xs text-zinc-400">場景描述</Label>
-                        <p className="text-sm">{seg.description || "尚未生成"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-zinc-400">旁白文字</Label>
-                        <p className="text-sm">{seg.narration || "尚未生成"}</p>
-                      </div>
+                    <div>
+                      <Label className="text-xs text-zinc-400">場景描述</Label>
+                      <p className="text-sm">{seg.description || "尚未生成"}</p>
                     </div>
                   </div>
                 ))}
@@ -1395,7 +1406,7 @@ Total: ${segmentCount} segments of 8 seconds each`;
 
               <Button
                 onClick={handleStep5_6Complete}
-                disabled={!segments.some(s => s.description || s.narration)}
+                disabled={!segments.some(s => s.description) && !fullNarration}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-500"
               >
                 <ChevronRight className="w-4 h-4 mr-2" />
@@ -1410,50 +1421,62 @@ Total: ${segmentCount} segments of 8 seconds each`;
           <StepCard step={step} status={status} isCurrent={true}>
             <div className="space-y-4">
               <p className="text-sm text-zinc-400">
-                點擊任意片段進行編輯，或使用 AI 重新生成
+                編輯場景描述和完整旁白，或使用 AI 重新生成
               </p>
 
-              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {/* 完整旁白編輯區域 */}
+              <div className="p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 rounded-lg border border-amber-500/30">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-amber-500" />
+                    <Label className="text-amber-500 font-medium">完整旁白</Label>
+                    <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-400">
+                      {fullNarration.length} 字
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleGenerateSegments}
+                    disabled={isGeneratingSegments}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    重新生成
+                  </Button>
+                </div>
+                <Textarea
+                  value={fullNarration}
+                  onChange={(e) => setFullNarration(e.target.value)}
+                  className="min-h-[120px] bg-background/50 text-sm"
+                  placeholder="輸入完整旁白..."
+                />
+                <p className="text-xs text-zinc-500 mt-2">
+                  提示：完整旁白會在合併時由 AI 自動分配到各個片段，每 {segments.length > 0 ? Math.round(fullNarration.length / segments.length) : 20}-25 字對應一個 8 秒片段
+                </p>
+              </div>
+
+              {/* 場景描述列表 */}
+              <div className="space-y-3 max-h-[300px] overflow-y-auto">
                 {segments.map((seg) => (
                   <div key={seg.id} className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
                     <div className="flex items-center justify-between mb-2">
                       <Badge variant="secondary">片段 #{seg.id}</Badge>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRegenerateSegment(seg.id, "description")}
-                        >
-                          <RefreshCw className="w-3 h-3 mr-1" />
-                          重生描述
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRegenerateSegment(seg.id, "narration")}
-                        >
-                          <RefreshCw className="w-3 h-3 mr-1" />
-                          重生旁白
-                        </Button>
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRegenerateSegment(seg.id, "description")}
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        重生描述
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-xs text-zinc-400">場景描述</Label>
-                        <Textarea
-                          value={seg.description}
-                          onChange={(e) => handleUpdateSegment(seg.id, "description", e.target.value)}
-                          className="min-h-[60px] bg-background/50 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-zinc-400">旁白文字</Label>
-                        <Textarea
-                          value={seg.narration}
-                          onChange={(e) => handleUpdateSegment(seg.id, "narration", e.target.value)}
-                          className="min-h-[60px] bg-background/50 text-sm"
-                        />
-                      </div>
+                    <div>
+                      <Label className="text-xs text-zinc-400">場景描述</Label>
+                      <Textarea
+                        value={seg.description}
+                        onChange={(e) => handleUpdateSegment(seg.id, "description", e.target.value)}
+                        className="min-h-[60px] bg-background/50 text-sm"
+                      />
                     </div>
                   </div>
                 ))}
