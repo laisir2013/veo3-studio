@@ -583,6 +583,75 @@ export default function WorkflowPage() {
   };
 
   // 步驟7：編輯內容
+  
+  // 上傳腳本文件解析
+  const handleScriptUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (!content) return;
+
+      try {
+        // 1. 解析完整旁白（支持多種格式）
+        let narration = "";
+        const narrationPatterns = [
+          /## 完整旁白（粵語）\n([\s\S]*?)(?=\n##|$)/,
+          /## 完整旁白\n([\s\S]*?)(?=\n##|$)/,
+          /## 旁白\n([\s\S]*?)(?=\n##|$)/,
+        ];
+        for (const pattern of narrationPatterns) {
+          const match = content.match(pattern);
+          if (match) {
+            narration = match[1].trim();
+            break;
+          }
+        }
+        
+        // 2. 解析片段描述（支持多種格式）
+        const segmentMatches = Array.from(content.matchAll(/### 片段 #(\d+)\n- 描述：(.*?)(?=\n###|\n\n---|完整旁白|$)/gs));
+        
+        if (segmentMatches.length === 0) {
+          toast.error("腳本格式不正確，請檢查文件內容");
+          return;
+        }
+
+        const newSegments: SegmentInfo[] = segmentMatches.map((match) => ({
+          id: parseInt(match[1]),
+          description: match[2].trim(),
+          narration: "", // 旁白是整段生成的，這裡留空
+          status: "pending" as const,
+        }));
+
+        // 更新狀態
+        if (narration) {
+          setFullNarration(narration);
+        }
+        setSegments(newSegments);
+        
+        // 自動更新時長選擇（根據片段數量）
+        const totalSeconds = newSegments.length * 8;
+        const totalMinutes = totalSeconds / 60;
+        // 找到最接近的時長選項
+        const closestDuration = PRESET_DURATIONS.reduce((prev, curr) => 
+          Math.abs(curr - totalMinutes) < Math.abs(prev - totalMinutes) ? curr : prev
+        );
+        setSelectedDuration(closestDuration);
+        
+        toast.success(`成功導入 ${newSegments.length} 個片段${narration ? "和完整旁白" : ""}`);
+      } catch (error) {
+        console.error("解析腳本失敗:", error);
+        toast.error("解析腳本失敗，請確保文件格式正確");
+      }
+    };
+    reader.readAsText(file);
+    
+    // 重置 input 以便可以重複選擇同一文件
+    event.target.value = "";
+  };
+
   const handleUpdateSegment = (segmentId: number, field: "description" | "narration", value: string) => {
     setSegments(prev => prev.map(seg => 
       seg.id === segmentId ? { ...seg, [field]: value } : seg
@@ -1516,6 +1585,36 @@ Total: ${segmentCount} segments of 8 seconds each`;
               <p className="text-sm text-zinc-400">
                 編輯場景描述和完整旁白，或使用 AI 重新生成
               </p>
+
+              {/* 上傳腳本按鈕 */}
+              <div className="p-4 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-lg border border-cyan-500/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Upload className="w-4 h-4 text-cyan-500" />
+                    <Label className="text-cyan-500 font-medium">上傳腳本文件</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept=".md,.txt"
+                      onChange={handleScriptUpload}
+                      className="hidden"
+                      id="script-upload"
+                    />
+                    <label htmlFor="script-upload">
+                      <Button variant="outline" size="sm" asChild>
+                        <span>
+                          <Upload className="w-3 h-3 mr-1" />
+                          選擇文件
+                        </span>
+                      </Button>
+                    </label>
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 mt-2">
+                  支持 .md 或 .txt 格式，自動解析「完整旁白」和「片段描述」
+                </p>
+              </div>
 
               {/* 完整旁白編輯區域 */}
               <div className="p-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 rounded-lg border border-amber-500/30">
